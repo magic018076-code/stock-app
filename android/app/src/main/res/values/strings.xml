@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">上櫃家數</string>
-    <string name="title_activity_main">上櫃家數</string>
+    <string name="app_name">股市智多星</string>
+    <string name="title_activity_main">股市智多星</string>
     <string name="package_name">tw.magic.otccount</string>
     <string name="custom_url_scheme">tw.magic.otccount</string>
 </resources>

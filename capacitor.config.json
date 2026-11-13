@@ -1,6 +1,6 @@
 {
   "appId": "tw.magic.otccount",
-  "appName": "上櫃家數",
+  "appName": "股市智多星",
   "webDir": "www",
   "plugins": {
     "CapacitorHttp": { "enabled": true }

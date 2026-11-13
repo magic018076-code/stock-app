@@ -33,13 +33,13 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
-          cp app/build/outputs/apk/debug/app-debug.apk ../上櫃家數.apk
+          cp app/build/outputs/apk/debug/app-debug.apk ../stock-app.apk
 
       - name: 發佈到 Releases（手機直接下載）
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
-          name: 上櫃家數 App 最新版
-          body: 用 Android 手機打開這頁，下載下方的「上櫃家數.apk」安裝。
-          files: 上櫃家數.apk
+          name: 股市智多星 最新版
+          body: 用 Android 手機打開這頁，下載下方的「stock-app.apk」安裝。
+          files: stock-app.apk
           make_latest: true
