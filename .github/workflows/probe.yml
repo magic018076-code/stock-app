@@ -13,10 +13,12 @@ jobs:
           mkdir -p out && cd out
           UA="Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36"
           f(){ n=$1; u=$2; code=$(curl -sS -L -m 40 -A "$UA" -o "$n.raw" -w "%{http_code}" "$u" || echo ERR); sz=$(wc -c < "$n.raw" 2>/dev/null || echo 0); echo "$n $code $sz $u" >> index.txt; head -c ${3:-3000} "$n.raw" > "$n.txt"; rm -f "$n.raw"; }
-          curl -sS -m 40 -A "$UA" "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL" | grep -o '"Change":"[^"]*"' | cut -c11-12 | sort | uniq -c > change_signs.txt
-          curl -sS -m 40 -A "$UA" "https://api.cnyes.com/media/api/v1/newslist/category/tw_stock?limit=2" | python3 -c "import json,sys;d=json.load(sys.stdin)['items']['data'][0];print({k:(str(v)[:60]) for k,v in d.items() if k!='content'})" > cnyes_keys.txt
+          set +e
+          curl -sS -m 40 -A "$UA" "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL" -o all.json; grep -o '"Change":"[^"]*"' all.json | cut -c11-12 | sort | uniq -c > change_signs.txt; rm -f all.json
+          curl -sS -m 40 -A "$UA" "https://api.cnyes.com/media/api/v1/newslist/category/tw_stock?limit=1" | sed 's/"content":"[^"]*"//' | head -c 3000 > cnyes_keys.txt
           curl -sS -m 40 -A "$UA" "https://mis.twse.com.tw/stock/api/getChartOhlcStatis.jsp?ex=tse&ch=2330.tw&fqy=1" | head -c 400 > chart_stock.txt
           curl -sS -m 40 -A "$UA" "https://mis.twse.com.tw/stock/api/getChartOhlcStatis.jsp?ex=otc&ch=o00.tw&fqy=1" | head -c 400 > chart_otc.txt
+          echo done > index.txt
           cat index.txt
       - name: save
         run: |
