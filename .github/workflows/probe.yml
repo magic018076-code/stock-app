@@ -1,0 +1,35 @@
+name: probe
+on:
+  push:
+    branches: [probe]
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: fetch samples
+        run: |
+          mkdir -p out && cd out
+          UA="Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36"
+          f(){ n=$1; u=$2; code=$(curl -sS -L -m 40 -A "$UA" -o "$n.raw" -w "%{http_code}" "$u" || echo ERR); sz=$(wc -c < "$n.raw" 2>/dev/null || echo 0); echo "$n $code $sz $u" >> index.txt; head -c ${3:-3000} "$n.raw" > "$n.txt"; rm -f "$n.raw"; }
+          f mis "https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_t00.tw%7Cotc_o00.tw%7Ctse_2330.tw%7Cotc_8069.tw&json=1&delay=0" 6000
+          f day_all "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL" 1500
+          f otc_close "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes" 1500
+          f fmtqik "https://openapi.twse.com.tw/v1/exchangeReport/FMTQIK" 2500
+          f mi_index "https://openapi.twse.com.tw/v1/exchangeReport/MI_INDEX" 2500
+          f news_l "https://openapi.twse.com.tw/v1/opendata/t187ap04_L" 2500
+          f news_o "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap04_O" 2500
+          f info_l "https://openapi.twse.com.tw/v1/opendata/t187ap03_L" 1500
+          f info_o "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O" 1500
+          f cnyes "https://api.cnyes.com/media/api/v1/newslist/category/tw_stock?limit=3" 4000
+          f tpex_swagger "https://www.tpex.org.tw/openapi/swagger.json" 400000
+          f twse_swagger "https://openapi.twse.com.tw/v1/swagger.json" 400000
+          f chart "https://mis.twse.com.tw/stock/api/getChartOhlcStatis.jsp?ex=tse&ch=t00.tw&fqy=1" 3000
+          cat index.txt
+      - name: save
+        run: |
+          cd out
+          git init -q -b probe-out && git add -A
+          git -c user.name=bot -c user.email=bot@x commit -qm samples
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" probe-out
