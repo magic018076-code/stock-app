@@ -34,12 +34,18 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
           cp app/build/outputs/apk/debug/app-debug.apk ../stock-app.apk
+          VC=$(grep -oP 'versionCode \K[0-9]+' app/build.gradle)
+          VN=$(grep -oP 'versionName "\K[^"]+' app/build.gradle)
+          echo "{\"versionCode\":$VC,\"versionName\":\"$VN\"}" > ../version.json
+          echo "VN=$VN" >> $GITHUB_ENV
 
       - name: 發佈到 Releases（手機直接下載）
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           name: 股市智多星 最新版
-          body: 用 Android 手機打開這頁，下載下方的「stock-app.apk」安裝。
-          files: stock-app.apk
+          body: 版本 ${{ env.VN }}。用 Android 手機下載「stock-app.apk」安裝；之後可在 App 內「個人 → 檢查更新」更新。
+          files: |
+            stock-app.apk
+            version.json
           make_latest: true

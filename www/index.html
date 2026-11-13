@@ -114,6 +114,9 @@ nav button.on::before{content:"";position:absolute;top:-7px;left:25%;right:25%;h
 .sess button i{display:block;font-style:normal;font-size:.62rem;opacity:.8;margin-top:1px}
 .live{display:inline-block;width:6px;height:6px;border-radius:50%;background:#2fb36d;margin-right:4px;vertical-align:middle}
 .live.off{background:#5b6b86}
+.upd{display:none;margin:0 16px 6px;padding:10px 12px;border-radius:12px;background:linear-gradient(135deg,#3b8cff,#7b5cff);align-items:center;gap:10px;font-size:.84rem}
+.upd.on{display:flex}.upd b{flex:1}.upd button{border:0;border-radius:8px;padding:6px 10px;background:#fff;color:#2a4fd6;font-weight:700;font-size:.8rem}
+.upd .x{background:none;color:#fff;padding:4px}
 .toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#22365a;color:#fff;padding:9px 16px;border-radius:20px;font-size:.88rem;z-index:40;opacity:0;transition:.25s;pointer-events:none}
 .toast.on{opacity:1}
 .mv{display:flex;flex-direction:column;gap:2px}
@@ -128,6 +131,7 @@ nav button.on::before{content:"";position:absolute;top:-7px;left:25%;right:25%;h
     <button class="ibtn" id="btnBell" aria-label="通知"><svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 1112 0v5l2 2H4z"/><path d="M10 20a2 2 0 004 0"/></svg><span class="dot" id="bellDot"></span></button>
   </header>
 
+  <div class="upd" id="updBar"><b id="updText">有新版本</b><button id="updGo">立即更新</button><button class="x" id="updX">✕</button></div>
   <div class="pages">
     <!-- 自選 -->
     <section class="page" id="p-watch">
@@ -209,7 +213,7 @@ nav button.on::before{content:"";position:absolute;top:-7px;left:25%;right:25%;h
       <h2>其他</h2>
       <div class="menu">
         <div class="mi" id="clearCache"><div class="l">清除快取資料<small>自選股與設定會保留</small></div><div class="r">›</div></div>
-        <div class="mi"><div class="l">版本</div><div class="r">1.2.0</div></div>
+        <div class="mi" id="checkUpd"><div class="l">檢查更新<small id="verDesc">目前版本讀取中…</small></div><div class="r" id="verR">›</div></div>
       </div>
       <p class="meta" style="margin-top:14px;line-height:1.6">資料來源：臺灣證券交易所、證券櫃檯買賣中心（OpenAPI 與基本市況報導）、公開資訊觀測站重大訊息、鉅亨網新聞。盤中報價可能延遲；所有資料僅供參考，不構成投資建議。</p>
     </section>
@@ -581,6 +585,25 @@ $("clearCache").onclick=()=>{["c_daily","c_info","c_news","c_mops","status"].for
 // Android 返回鍵：先關閉彈出頁
 try{window.Capacitor&&Capacitor.Plugins.App.addListener("backButton",()=>{for(const id of ["ovStock","ovSearch","ovBell"])if($(id).classList.contains("on")){$(id).classList.remove("on");if(id==="ovStock")renderAll();return}if(page!=="market"){go("market");return}Capacitor.Plugins.App.exitApp()})}catch(e){}
 
+/* ========== App 內更新 ========== */
+const REL="https://github.com/magic018076-code/stock-app/releases/download/latest/";
+let myVer={code:0,name:"網頁版"},remoteVer=null;
+async function getMyVer(){try{if(window.Capacitor&&Capacitor.Plugins.App){const i=await Capacitor.Plugins.App.getInfo();myVer={code:+i.build||0,name:i.version||""}}}catch(e){}$("verDesc").textContent="目前版本 "+myVer.name}
+async function checkUpdate(manual){
+  await getMyVer();
+  try{
+    const r=await fetch(REL+"version.json?_="+Date.now());if(!r.ok)throw new Error("HTTP "+r.status);
+    let j=await r.json();if(typeof j==="string")j=JSON.parse(j);remoteVer=j;
+    const has=myVer.code&&j.versionCode>myVer.code;
+    $("verR").textContent=has?"有新版 "+j.versionName:"已是最新";
+    if(has&&(manual||store.get("updSkip",0)!==j.versionCode)){$("updText").textContent=`有新版本 ${j.versionName}（目前 ${myVer.name}）`;$("updBar").classList.add("on")}
+    else if(manual)toast(myVer.code?"已經是最新版本":"網頁版不需要更新");
+  }catch(e){if(manual)toast("檢查更新失敗，請確認網路")}
+}
+$("updGo").onclick=()=>{openUrl(REL+"stock-app.apk");toast("下載完成後點通知安裝即可")};
+$("updX").onclick=()=>{$("updBar").classList.remove("on");if(remoteVer)store.set("updSkip",remoteVer.versionCode)};
+$("checkUpd").onclick=()=>{toast("檢查中…");checkUpdate(true)};
+
 /* ========== 更新排程 ========== */
 let timer=null,rtBusy=false;
 async function refreshRT(){
@@ -604,7 +627,7 @@ async function boot(force){
   await Promise.allSettled(jobs);renderAll();
 }
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)boot(false)});
-renderMe();go(S.home||"market");setSess(sess);boot(false);schedule();
+renderMe();go(S.home||"market");setSess(sess);boot(false);schedule();setTimeout(()=>checkUpdate(false),2500);
 </script>
 </body>
 </html>
