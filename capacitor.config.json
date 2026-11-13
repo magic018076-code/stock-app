@@ -1,0 +1,11 @@
+{
+  "appId": "tw.magic.otccount",
+  "appName": "上櫃家數",
+  "webDir": "www",
+  "plugins": {
+    "CapacitorHttp": { "enabled": true }
+  },
+  "android": {
+    "backgroundColor": "#f6f7f9"
+  }
+}

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>上櫃家數</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1b1f24;--mute:#6a7380;--acc:#c0392b;--acc2:#fbe9e7;--gold:#d4a017;--line:#e3e6ea}
+@media (prefers-color-scheme:dark){:root{--bg:#111418;--card:#1b1f25;--ink:#eef1f4;--mute:#9aa4af;--acc:#ff6b5b;--acc2:#3a2421;--line:#2b3139}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;font-family:-apple-system,"Noto Sans TC","PingFang TC",sans-serif;background:var(--bg);color:var(--ink);line-height:1.5}
+main{max-width:640px;margin:0 auto;padding:calc(env(safe-area-inset-top) + 14px) 14px calc(env(safe-area-inset-bottom) + 20px)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;margin-bottom:14px}
+h1{font-size:1rem;margin:0 0 4px;color:var(--mute);font-weight:600}
+.big{font-size:4.4rem;font-weight:800;letter-spacing:-2px;line-height:1.05;color:var(--acc)}
+.big small{font-size:1.4rem;letter-spacing:0;color:var(--ink);margin-left:4px}
+.meta{color:var(--mute);font-size:.86rem}
+h2{font-size:1rem;margin:0 0 12px}
+.tabs{display:flex;gap:6px;margin-bottom:14px}
+.tabs button{flex:1;padding:11px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:.95rem}
+.tabs button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.bar{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:.86rem}
+.bar .lbl{width:90px;flex:none;color:var(--mute)}
+.bar .trk{flex:1;background:var(--acc2);border-radius:6px;height:22px;overflow:hidden}
+.bar .fill{display:block;height:100%;background:var(--acc);border-radius:6px}
+.bar .val{width:44px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.btn{padding:10px 16px;border-radius:10px;background:var(--acc);color:#fff;border:0;font-size:.95rem}
+input[type=search]{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:1rem}
+table{width:100%;border-collapse:collapse;font-size:.9rem;margin-top:10px}
+td,th{padding:8px 4px;border-bottom:1px solid var(--line);text-align:left}
+th{color:var(--mute);font-weight:600}
+.hide{display:none}
+.kpis{display:flex;gap:10px;margin-top:12px}
+.kpi{flex:1;background:var(--bg);border-radius:12px;padding:10px;text-align:center}
+.kpi b{display:block;font-size:1.3rem}
+.kpi span{font-size:.76rem;color:var(--mute)}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.chg{font-weight:700}
+.up{color:var(--acc)} .down{color:#2e8b57}
+</style>
+</head>
+<body>
+<main>
+  <section class="card">
+    <div class="row"><h1>全台灣上櫃公司家數</h1><button class="btn" id="refreshBtn" style="padding:6px 12px;font-size:.85rem">更新</button></div>
+    <div class="big" id="bigNum">—<small>家</small></div>
+    <div class="meta" id="status">讀取中…</div>
+    <div class="kpis" id="kpis"></div>
+  </section>
+
+  <div class="tabs">
+    <button class="on" data-tab="trend">家數變化</button>
+    <button data-tab="ind">產業分布</button>
+    <button data-tab="list">公司搜尋</button>
+  </div>
+
+  <section class="card" id="tab-trend">
+    <h2>每日家數紀錄</h2>
+    <div id="trend"></div>
+    <h2 style="margin-top:18px">最近新上櫃</h2>
+    <table><thead><tr><th>上櫃日期</th><th>代號</th><th>名稱</th></tr></thead><tbody id="newest"></tbody></table>
+  </section>
+
+  <section class="card hide" id="tab-ind">
+    <h2>產業分布</h2>
+    <div id="ind"></div>
+  </section>
+
+  <section class="card hide" id="tab-list">
+    <input type="search" id="q" placeholder="輸入代號、名稱或產業，例如 3105、穩懋、半導體">
+    <table><thead><tr><th>代號</th><th>名稱</th><th>產業</th></tr></thead><tbody id="rows"></tbody></table>
+    <div class="meta" id="rowNote"></div>
+  </section>
+  <p class="meta" style="text-align:center">資料來源：櫃買中心 OpenAPI「上櫃公司基本資料」（每日更新）</p>
+</main>
+
+<script>
+const API_JSON="https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O";
+const API_CSV="https://mopsfin.twse.com.tw/opendata/t187ap03_O.csv";
+const SEED=[{d:"2025-11-11",n:866},{d:"2026-02-10",n:879},{d:"2026-06-17",n:890},{d:"2026-10-12",n:893}];
+const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融","18":"貿易百貨","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票"};
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+let companies=[];
+
+function today(){const t=new Date(Date.now()+8*3600e3);return t.toISOString().slice(0,10)}
+function indName(v){v=String(v??"").trim();if(!v)return"未分類";const k=v.padStart(2,"0");return IND[k]||v}
+function fmtDate(s){s=String(s||"").replace(/\D/g,"");if(s.length===7)s=String(+s.slice(0,3)+1911)+s.slice(3);return s.length===8?`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6)}`:""}
+function pick(o,tests){const ks=Object.keys(o);for(const t of tests){const k=ks.find(k=>t.test(k));if(k)return k}return null}
+function parseCSV(text){const rows=[];let row=[],cur="",q=false;for(let i=0;i<text.length;i++){const c=text[i];if(q){if(c=='"'){if(text[i+1]=='"'){cur+='"';i++}else q=false}else cur+=c}else if(c=='"')q=true;else if(c==','){row.push(cur);cur=""}else if(c=='\n'||c=='\r'){if(c=='\r'&&text[i+1]=='\n')i++;row.push(cur);cur="";if(row.some(x=>x.trim()))rows.push(row);row=[]}else cur+=c}row.push(cur);if(row.some(x=>x.trim()))rows.push(row);const head=rows.shift().map(h=>h.trim().replace(/^﻿/,""));return rows.map(r=>Object.fromEntries(head.map((h,i)=>[h,(r[i]||"").trim()])))}
+
+function normalize(data){
+  const s=data[0];
+  const kC=pick(s,[/^SecuritiesCompanyCode$/i,/公司代號/,/code/i]);
+  const kN=pick(s,[/CompanyAbbreviation/i,/公司簡稱/,/CompanyName/i,/公司名稱/]);
+  const kI=pick(s,[/SecuritiesIndustryCode/i,/產業別/,/industry/i]);
+  const kD=pick(s,[/ListingDate/i,/DateOfListing/i,/上櫃日期/,/OTC.*Date/i]);
+  const seen=new Set();
+  return data.map(r=>({c:String(r[kC]??"").trim(),n:String(r[kN]??"").trim(),i:indName(r[kI]),d:kD?fmtDate(r[kD]):""}))
+    .filter(r=>r.c&&!seen.has(r.c)&&seen.add(r.c));
+}
+
+async function fetchData(){
+  try{
+    const r=await fetch(API_JSON,{headers:{Accept:"application/json"}});
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    let j=await r.json(); if(typeof j==="string")j=JSON.parse(j);
+    if(Array.isArray(j)&&j.length)return normalize(j);
+    throw new Error("empty");
+  }catch(e){
+    const r=await fetch(API_CSV); if(!r.ok)throw new Error("HTTP "+r.status);
+    const rows=parseCSV((await r.text()).replace(/^﻿/,""));
+    if(!rows.length)throw new Error("empty");
+    return normalize(rows);
+  }
+}
+
+function render(list,when,stale){
+  companies=list;
+  const n=list.length;
+  $("bigNum").innerHTML=n+"<small>家</small>";
+  const hist=store.get("history",{});
+  const days=Object.keys(hist).sort();
+  const prev=days.filter(d=>d<today()).pop();
+  let chg="";
+  if(prev){const diff=n-hist[prev];chg=diff===0?"與上次相同":`<span class="chg ${diff>0?"up":"down"}">${diff>0?"▲":"▼"} ${Math.abs(diff)}</span> 較 ${prev}`}
+  $("status").innerHTML=(stale?"⚠️ 無法連線，顯示上次資料・":"✅ ")+`更新時間 ${when}`+(chg?`<br>${chg}`:"");
+  const ky=list.filter(r=>/KY/i.test(r.n)).length;
+  const yr=today().slice(0,4), newThisYear=list.filter(r=>r.d.startsWith(yr)).length;
+  $("kpis").innerHTML=`<div class="kpi"><b>${newThisYear}</b><span>${yr} 年新上櫃</span></div><div class="kpi"><b>${ky}</b><span>KY 公司</span></div><div class="kpi"><b>${n-ky}</b><span>本國公司</span></div>`;
+  renderTrend();
+  const cnt={};list.forEach(r=>cnt[r.i]=(cnt[r.i]||0)+1);
+  bars($("ind"),Object.entries(cnt).sort((a,b)=>b[1]-a[1]).map(([l,v])=>({l,v})));
+  $("newest").innerHTML=list.filter(r=>r.d).sort((a,b)=>b.d.localeCompare(a.d)).slice(0,10).map(r=>`<tr><td>${r.d}</td><td>${esc(r.c)}</td><td>${esc(r.n)}</td></tr>`).join("");
+  renderRows();
+}
+function bars(el,items){const max=Math.max(...items.map(i=>i.v),1);el.innerHTML=items.map(i=>`<div class="bar"><span class="lbl">${esc(i.l)}</span><span class="trk"><span class="fill" style="width:${(i.v/max*100).toFixed(1)}%"></span></span><span class="val">${i.v}</span></div>`).join("")}
+function renderTrend(){
+  const hist=store.get("history",{});
+  const all={};SEED.forEach(s=>all[s.d]=s.n);Object.assign(all,hist);
+  const pts=Object.entries(all).sort((a,b)=>a[0].localeCompare(b[0])).slice(-14);
+  const vals=pts.map(p=>p[1]),min=Math.min(...vals)-10,max=Math.max(...vals);
+  $("trend").innerHTML=pts.map(([d,n])=>`<div class="bar"><span class="lbl">${d}</span><span class="trk"><span class="fill" style="width:${((n-min)/Math.max(max-min,1)*100).toFixed(1)}%"></span></span><span class="val">${n}</span></div>`).join("")+`<p class="meta">App 每天打開時自動抓最新資料並記錄一筆，最多顯示最近 14 筆。</p>`;
+}
+function renderRows(){
+  const q=$("q").value.trim().toLowerCase();
+  const hit=companies.filter(r=>!q||r.c.includes(q)||r.n.toLowerCase().includes(q)||r.i.includes(q));
+  $("rows").innerHTML=hit.slice(0,150).map(r=>`<tr><td>${esc(r.c)}</td><td>${esc(r.n)}</td><td>${esc(r.i)}</td></tr>`).join("");
+  $("rowNote").textContent=`符合 ${hit.length} 家`+(hit.length>150?"（顯示前 150 筆）":"");
+}
+
+let busy=false;
+async function update(force){
+  if(busy)return; busy=true;
+  const cache=store.get("cache",null);
+  if(!force&&cache&&cache.day===today()){render(cache.list,cache.when,false);busy=false;return}
+  $("status").textContent="讀取最新資料中…";
+  try{
+    const list=await fetchData();
+    const when=new Date().toLocaleString("zh-TW",{hour12:false,timeZone:"Asia/Taipei"});
+    store.set("cache",{day:today(),when,list});
+    const hist=store.get("history",{});hist[today()]=list.length;store.set("history",hist);
+    render(list,when,false);
+  }catch(e){
+    if(cache)render(cache.list,cache.when,true);
+    else{$("bigNum").innerHTML="893<small>家</small>";$("status").textContent="⚠️ 目前無法連線櫃買中心，顯示 2026-10-12 公告數字。請確認網路後按「更新」。"}
+  }
+  busy=false;
+}
+document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tabs button").forEach(x=>x.classList.toggle("on",x===b));["trend","ind","list"].forEach(t=>$("tab-"+t).classList.toggle("hide",t!==b.dataset.tab))});
+$("q").oninput=renderRows;
+$("refreshBtn").onclick=()=>update(true);
+update(false);
+// 從背景回到 App 時，如果已經過了一天就自動更新
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)update(false)});
+try{window.Capacitor&&Capacitor.Plugins.App&&Capacitor.Plugins.App.addListener("resume",()=>update(false))}catch(e){}
+</script>
+</body>
+</html>
