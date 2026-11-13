@@ -12,16 +12,10 @@ jobs:
           set +e
           mkdir out && cd out
           UA="Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36"
-          for mt in 0 1; do
-            curl -sS -m 30 -A "$UA" -H "Content-Type: application/json" -X POST "https://mis.taifex.com.tw/futures/api/getQuoteList" \
-              -d "{\"MarketType\":\"$mt\",\"SymbolType\":\"F\",\"KindID\":\"1\",\"CID\":\"TXF\",\"ExpireMonth\":\"\",\"RowSize\":\"全部\",\"PageNo\":\"\",\"SortColumn\":\"\",\"AscDesc\":\"A\"}" | head -c 3000 > taifex_mt$mt.txt
-          done
-          curl -sS -m 30 -A "$UA" -H "Content-Type: application/json" -X POST "https://mis.taifex.com.tw/futures/api/getChartData1M" -d '{"SymbolID":"TXF-F","MarketType":"1"}' | head -c 800 > taifex_chart.txt
-          curl -sS -m 30 -A "$UA" "https://openapi.taifex.com.tw/v1/DailyMarketReportFut" | head -c 1500 > taifex_daily.txt
-          curl -sS -m 30 -A "$UA" "https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?range=1d&interval=5m" | head -c 1500 > yahoo_chart.txt
-          curl -sS -m 30 -A "$UA" "https://query1.finance.yahoo.com/v7/finance/quote?symbols=%5EDJI,%5EIXIC" | head -c 800 > yahoo_quote.txt
-          curl -sS -m 30 -A "$UA" "https://query1.finance.yahoo.com/v8/finance/spark?symbols=%5EDJI,%5EIXIC,%5EGSPC,%5ESOX,TSM&range=1d&interval=15m" | head -c 2500 > yahoo_spark.txt
-          curl -sS -m 30 -A "$UA" "https://stooq.com/q/l/?s=%5Edji+%5Endq+%5Espx+tsm.us&f=sd2t2ohlcp&h&e=csv" | head -c 800 > stooq.txt
+          curl -sS -m 30 -A "$UA" "https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol?symbols=.DJI%7C.IXIC%7C.SPX%7C.SOX%7CTSM&requestMethod=itv&noform=1&partnerId=2&fund=1&exthrs=1&output=json" | head -c 2500 > cnbc.txt
+          curl -sS -m 30 -A "$UA" "https://ts-api.cnbc.com/harmony/app/charts/1D.json?symbol=.SPX" | head -c 800 > cnbc_chart.txt
+          curl -sS -m 30 -A "$UA" "https://query2.finance.yahoo.com/v8/finance/chart/%5EGSPC?range=1d&interval=5m" | head -c 600 > yahoo2.txt
+          curl -sS -m 30 -A "$UA" -H "Content-Type: application/json" -X POST "https://mis.taifex.com.tw/futures/api/getQuoteList" -d '{"MarketType":"1","SymbolType":"F","KindID":"1","CID":"MXF","ExpireMonth":"","RowSize":"全部","PageNo":"","SortColumn":"","AscDesc":"A"}' | head -c 600 > mxf.txt
           ls -la
       - run: |
           cd out && git init -q -b probe2-out && git add -A && git -c user.name=bot -c user.email=bot@x commit -qm s && git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" probe2-out
