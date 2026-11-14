@@ -102,6 +102,7 @@ input[type=search],input[type=text]{flex:1;background:#1b1d22;border:1px solid #
 .form label{font-size:.85rem;color:var(--mute)}
 .form .b{border:1px solid #555;border-radius:8px;padding:9px 12px;font-size:.9rem;flex:none}
 .form .b.acc{background:var(--acc);border-color:var(--acc);color:#000;font-weight:700}
+.lbrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 0}.lbrow>span{color:var(--mute);font-size:.82rem;flex:none}.lbrow .opt{flex-wrap:wrap;justify-content:flex-end}.lbrow .opt button{padding:4px 8px}
 .chip{display:inline-block;border:1px solid #555;border-radius:14px;padding:3px 10px;margin:3px;font-size:.82rem}
 .alert{position:fixed;left:10px;right:10px;top:calc(60px + env(safe-area-inset-top));z-index:60;background:#3a2d0a;border:1px solid var(--acc);border-radius:10px;padding:12px 14px;display:none;gap:10px;align-items:center;box-shadow:0 6px 24px #000}
 .alert.on{display:flex}.alert b{flex:1;font-weight:500;color:#ffd27a}
@@ -171,7 +172,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=2; // 介面版本，要和 ota.json 一致
+const UI_V=3; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:20,fs:"m"},store.get("settings",{}));
 let groups=store.get("groups",null);
@@ -348,6 +349,21 @@ async function loadFlows(force){
   },force).catch(()=>flows);
 }
 
+/* ===== 低檔盤整（GitHub 每天收盤後算好，App 下載結果） ===== */
+const LB_URL="https://raw.githubusercontent.com/magic018076-code/stock-app/data/lowbase.json";
+let lowbase=null;
+let LBF=Object.assign({per:63,amp:20,pos:33,dd:20,vol:100,mkt:"",sort:"len"},store.get("lbF",{}));
+async function loadLowbase(force){
+  lowbase=await cached("lowbase",4,async()=>{const j=await getJSON(LB_URL+"?t="+Math.floor(Date.now()/600000));if(!j.items)throw new Error("bad");return j},force).catch(()=>lowbase);
+}
+function lbList(f=LBF){
+  if(!lowbase)return [];
+  let a=lowbase.items.filter(x=>(x.len[String(f.amp)]||0)>=f.per&&(f.pos>=100||x.pos<=f.pos)&&(!f.dd||x.dd<=-f.dd)&&!/^00/.test(x.c)&&x.v20>=f.vol&&(!f.mkt||x.m===f.mkt));
+  const k={len:(x,y)=>y.len[f.amp]-x.len[f.amp],amp:(x,y)=>(x.bhi/x.blo)-(y.bhi/y.blo),pos:(x,y)=>x.pos-y.pos,bo:(x,y)=>(y.bo-x.bo)||(y.len[f.amp]-x.len[f.amp]),vol:(x,y)=>(x.v20/x.v120)-(y.v20/y.v120)}[f.sort];
+  return a.sort(k);
+}
+const mon=d=>(d/21).toFixed(1);
+
 /* ===== 庫存與價格提醒 ===== */
 let holds=store.get("holds",{}),alerts=store.get("alerts",[]);
 const saveH=()=>store.set("holds",holds),saveA=()=>store.set("alerts",alerts);
@@ -408,12 +424,14 @@ document.addEventListener("pointermove",e=>{if(e.buttons&&e.target.closest("#kc"
 document.addEventListener("touchmove",e=>{if(e.target.closest("#kc"))kTouch(e)},{passive:true});
 
 /* ===== 報價列 ===== */
-function nameOf(c){return (rt[c]&&rt[c].n)||(daily.rows&&daily.rows[c]&&daily.rows[c][0])||(info.rows&&info.rows[c]&&info.rows[c][7])||c}
+const lbItem=c=>lowbase&&(lowbase._m||(lowbase._m=Object.fromEntries(lowbase.items.map(x=>[x.c,x]))))[c];
+function nameOf(c){return (lbItem(c)&&lbItem(c).n)||(rt[c]&&rt[c].n)||(daily.rows&&daily.rows[c]&&daily.rows[c][0])||(info.rows&&info.rows[c]&&info.rows[c][7])||c}
 function quote(c){
   const r=rt[c];
   if(r&&isFinite(r.z))return {c,n:r.n||nameOf(c),px:r.z,ch:r.ch,pct:r.pct,o:r.o,h:r.h,l:r.l,v:r.v,y:r.y,u:r.u,w:r.w,t:r.t,live:true,r};
   const d=daily.rows&&daily.rows[c];
   if(d){const y=d[2]-d[3];return {c,n:d[0],px:d[2],ch:d[3],pct:y?d[3]/y*100:NaN,o:d[4],h:d[5],l:d[6],v:d[7],val:d[8],y,live:false}}
+  const x=lbItem(c);if(x){const y=x.px/(1+x.ch/100);return {c,n:x.n,px:x.px,ch:x.px-y,pct:x.ch,y,live:false}}
   return {c,n:nameOf(c),px:NaN,ch:NaN,pct:NaN};
 }
 // 股價小數：5000 元以上不顯示小數（和券商 App 一樣）
@@ -459,6 +477,7 @@ function openSheet(kind){
   if(kind==="watch"){
     h+=`<div class="grp">我的自選群組</div>`+groups.map((g,i)=>`<button data-sel="g:${i}" class="${gSel==="g:"+i?"on":""}">${esc(g.name)}<span class="mute">${g.codes.length} 檔</span></button>`).join("");
     h+=`<div class="grp">我的庫存</div><button data-sel="h:" class="${gSel==="h:"?"on":""}">庫存損益<span class="mute">${Object.keys(holds).length} 檔</span></button>`;
+    h+=`<div class="grp">選股</div><button data-sel="p:low" class="${gSel==="p:low"?"on":""}">低檔盤整<span class="mute">${mon(LBF.per)} 個月以上・振幅 ${LBF.amp}%</span></button>`;
     h+=`<div class="grp">市場排行（前一交易日收盤）</div>`+PRESET.map(p=>`<button data-sel="${p[0]}" class="${gSel===p[0]?"on":""}">${p[1]}</button>`).join("");
   }else if(kind==="intl"){
     h+=INTL.map(p=>`<button data-sel="${p[0]}" class="${iSel===p[0]?"on":""}">${p[1]}<span class="mute">${p[2]}</span></button>`).join("");
@@ -500,6 +519,7 @@ const lots2=(v,u)=>isFinite(v)?`<small class="${cls(v)}">${v>0?"+":""}${fmtC(v,u
 /* ===== 自選報價 ===== */
 const PRESET=[["p:vol","成交量排行"],["p:up","漲幅排行"],["p:down","跌幅排行"],["p:otcvol","上櫃成交量排行"],["p:otcup","上櫃漲幅排行"]];
 function presetCodes(k){
+  if(k==="p:low")return lbList().slice(0,50).map(x=>x.c);
   const rows=daily.rows||{},pct=c=>{const r=rows[c],y=r[2]-r[3];return y?r[3]/y*100:0};
   let c=Object.keys(rows).filter(x=>/^\d{4}$/.test(x)&&isFinite(rows[x][2]));
   if(k.startsWith("p:otc"))c=c.filter(x=>rows[x][1]==="上櫃");
@@ -520,12 +540,12 @@ function renderHolds(){
 function renderWatch(){
   if(gSel==="h:")return renderHolds();
   const g=curGroup(),p=PRESET.find(x=>x[0]===gSel);
-  setTB(g?g.name:p?p[1]:"自選報價",{dd:"watch",left:icBtn("tbEdit","list"),right:icBtn("tbRef","ref")});
+  setTB(g?g.name:p?p[1]:gSel==="p:low"?"低檔盤整":"自選報價",{dd:"watch",left:icBtn("tbEdit","list"),right:icBtn("tbRef","ref")});
   const codes=g?g.codes:presetCodes(gSel);
   let h=head(true);
   h+=sortCodes(codes).map(stockRow).join("")||`<div class="empty">${g?"這個群組還沒有股票<br><br>按下方「加入自選」新增":"讀取中…"}</div>`;
   const live=codes.some(c=>rt[c]);
-  h+=`<div class="foot">${live?"即時報價・"+nowStr()+" 更新":daily.date?"收盤價 "+daily.date:""}${!g?"・排行依前一交易日收盤":""}<br>點表頭「成交／漲跌／幅度」排序；點標題切換清單；左上角編輯清單。<br>名稱下方條狀：綠＝委賣量、紅＝委買量。</div>`;
+  h+=`<div class="foot">${live?"即時報價・"+nowStr()+" 更新":daily.date?"收盤價 "+daily.date:""}${gSel==="p:low"?"・條件：盤整 "+mon(LBF.per)+" 個月以上、振幅 "+LBF.amp+"%、"+(LBF.pos>=100?"位置不限":"一年位置 ≤"+LBF.pos+"%")+"（可在「更多 → 低檔盤整」調整）":!g?"・排行依前一交易日收盤":""}<br>點表頭「成交／漲跌／幅度」排序；點標題切換清單；左上角編輯清單。<br>名稱下方條狀：綠＝委賣量、紅＝委買量。</div>`;
   $("main").innerHTML=h;
 }
 
@@ -557,7 +577,7 @@ function renderMore(){
   const it=(k,t,s)=>`<div class="li" data-sub="${k}"><div class="l">${t}<small>${s}</small></div><div class="r">›</div></div>`;
   $("main").innerHTML=`<div class="sec"><span>資訊</span></div>`+it("news","財經新聞","鉅亨網台股新聞")+it("mops","重大訊息","上市櫃公司公告，可只看自選股")+
    `<div class="sec"><span>我的</span></div>`+it("holds","庫存損益","持股市值、未實現損益、報酬率")+it("alerts","價格提醒",alerts.filter(a=>a.on).length+" 則啟用中")+
-   `<div class="sec"><span>選股工具</span></div>`+it("ind","產業分布","各產業上市櫃家數，點進去看報價")+it("newlist","新上市櫃","最近掛牌的公司")+it("otchist","上櫃家數紀錄","每天自動記錄的上櫃公司家數")+
+   `<div class="sec"><span>選股工具</span></div>`+it("lowbase","低檔盤整","股價在低檔橫盤超過 3 個月的股票")+it("ind","產業分布","各產業上市櫃家數，點進去看報價")+it("newlist","新上市櫃","最近掛牌的公司")+it("otchist","上櫃家數紀錄","每天自動記錄的上櫃公司家數")+
    `<div class="sec"><span>設定</span></div>`+it("settings","設定","字體大小、漲跌顏色、自動更新")+it("status","資料狀態","各資料來源最後更新時間")+
    `<div class="li" id="checkUpd"><div class="l">檢查更新<small id="verDesc">目前版本 ${esc(myVer.name)}</small><small>介面版本 ${window.__OTA_V||UI_V}（打開 App 時自動更新）</small></div><div class="r" id="verR">›</div></div>`+
    `<div class="foot">資料來源：臺灣證券交易所、證券櫃檯買賣中心、臺灣期貨交易所、公開資訊觀測站、鉅亨網、CNBC。資料僅供參考，不構成投資建議。</div>`;
@@ -598,6 +618,25 @@ function renderOv(){
     $("gAdd").onclick=()=>{const v=$("gNew").value.trim();if(!v)return toast("請輸入群組名稱");groups.push({name:v,codes:[]});saveG();gSel="g:"+(groups.length-1);store.set("gSel",gSel);toast("已新增「"+v+"」");renderOv()};
     if($("gDel"))$("gDel").onclick=()=>{if($("gDel").dataset.ok){groups.splice(gi,1);saveG();gSel="g:0";store.set("gSel",gSel);toast("已刪除群組");closeOv()}else{$("gDel").dataset.ok=1;$("gDel").textContent="再按一次確認刪除"}};
     return;
+  }
+  if(ovKind==="lowbase"){
+    T.innerHTML="低檔盤整";
+    const o=(k,v,t)=>`<button data-lbf="${k}" data-v="${v}" class="${String(LBF[k])===String(v)?"on":""}">${t}</button>`;
+    const list=lbList();
+    let h=`<div class="li" style="display:block;padding:10px 12px">
+      <div class="lbrow"><span>盤整至少</span><div class="opt">${o("per",63,"3個月")+o("per",84,"4個月")+o("per",126,"6個月")}</div></div>
+      <div class="lbrow"><span>振幅不超過</span><div class="opt">${o("amp",10,"10%")+o("amp",15,"15%")+o("amp",20,"20%")+o("amp",25,"25%")+o("amp",30,"30%")}</div></div>
+      <div class="lbrow"><span>股價位置</span><div class="opt">${o("pos",33,"一年低檔")+o("pos",50,"偏低")+o("pos",100,"不限")}</div></div>
+      <div class="lbrow"><span>距一年高點</span><div class="opt">${o("dd",20,"跌≥20%")+o("dd",30,"跌≥30%")+o("dd",0,"不限")}</div></div>
+      <div class="lbrow"><span>日均量</span><div class="opt">${o("vol",100,"≥100張")+o("vol",500,"≥500張")+o("vol",0,"不限")}</div></div>
+      <div class="lbrow"><span>市場</span><div class="opt">${o("mkt","","全部")+o("mkt","L","上市")+o("mkt","O","上櫃")}</div></div>
+      <div class="lbrow"><span>排序</span><div class="opt">${o("sort","len","盤最久")+o("sort","amp","最窄")+o("sort","pos","最低")+o("sort","bo","突破")+o("sort","vol","量縮")}</div></div></div>`;
+    if(!lowbase){B.innerHTML=h+`<div class="empty">資料讀取中…<br><br>（第一次使用需要 GitHub 先算好資料）</div>`;return}
+    h+=`<div class="sec"><span>符合 ${list.length} 檔</span><span>資料到 ${esc(lowbase.date)}</span></div>`;
+    h+=`<div class="qh" style="grid-template-columns:27% 23% 25% 25%"><span>商品</span><span>收盤</span><span>盤整</span><span>一年位置</span></div>`;
+    h+=list.slice(0,150).map(x=>{const amp=(x.bhi/x.blo-1)*100;return `<div class="qr" data-code="${x.c}" style="grid-template-columns:27% 23% 25% 25%"><div class="nm"><b class="${x.n.length>4?"sm":""}">${esc(x.n)}</b><i><s style="flex:${Math.max(x.pos,1)};background:#b31414"></s><s style="flex:${Math.max(100-x.pos,1)};background:#3a3d44"></s></i></div><div class="${x.ch>0?"up":x.ch<0?"down":"flat"}">${F(x.px,x.px>=5000?0:2)}</div><div style="color:var(--acc)">${mon(x.len[LBF.amp])}月<small class="mute" style="display:block;font-size:.62em;line-height:1">區間 ${F(x.blo,x.blo>=1000?0:1)}–${F(x.bhi,x.bhi>=1000?0:1)}</small></div><div>${F(x.pos,0)}%${x.bo?`<small class="up" style="display:block;font-size:.62em;line-height:1">▲今日突破</small>`:x.v20<x.v120*0.6?`<small class="mute" style="display:block;font-size:.62em;line-height:1">量縮</small>`:""}</div></div>`}).join("")||`<div class="empty">沒有符合條件的股票，試著放寬振幅或期間</div>`;
+    h+=`<div class="foot"><b>判斷方式</b>：從最近一個交易日往回算，收盤價的（最高－最低）÷ 最低 一直在「振幅」以內的天數，就是盤整天數（一個月約 21 個交易日）。<br>「一年位置」＝現價在近一年最低到最高之間的位置，0% 是一年最低、100% 是一年最高；「一年低檔」指 33% 以下；「距一年高點」用來排除一整年都沒什麼波動的股票，只留下先跌一段、再橫盤的。<br>名稱下方紅條越短代表越接近一年低點。「今日突破」是收盤價超過前 60 日最高價；「量縮」是近 20 日均量不到近半年均量的六成。<br>資料由 GitHub 每個交易日 18:40 後自動計算（${esc(lowbase.generated||"")} 更新，共 ${lowbase.days} 個交易日）。僅供參考，不構成投資建議。</div>`;
+    B.innerHTML=h;return;
   }
   if(ovKind==="alerts"){
     T.innerHTML="價格提醒";
@@ -652,7 +691,7 @@ function renderOv(){
     return;
   }
   if(ovKind==="status"){
-    T.innerHTML="資料狀態";const names={insti:"三大法人（個股）",marginS:"融資融券（個股）",flows:"三大法人／信用交易（市場）",rt:"台股即時報價",fut:"期貨（日盤／夜盤）",us:"美股",daily:"台股收盤行情",info:"公司基本資料",news:"財經新聞",mops:"重大訊息"};
+    T.innerHTML="資料狀態";const names={lowbase:"低檔盤整（每日計算）",insti:"三大法人（個股）",marginS:"融資融券（個股）",flows:"三大法人／信用交易（市場）",rt:"台股即時報價",fut:"期貨（日盤／夜盤）",us:"美股",daily:"台股收盤行情",info:"公司基本資料",news:"財經新聞",mops:"重大訊息"};
     B.innerHTML=Object.entries(names).map(([k,n])=>{const s=status[k];return `<div class="li"><div class="l">${n}</div><div class="r">${s?(s.ok?"✅ ":"⚠️ ")+s.t:"尚未更新"}</div></div>`}).join("");return;
   }
 }
@@ -737,6 +776,7 @@ document.addEventListener("click",e=>{
   const tg=t.closest("[data-toggle]");if(tg){const g=curGroup()||groups[0],c=tg.dataset.toggle;if(g.codes.includes(c)){g.codes=g.codes.filter(x=>x!==c);toast("已移除")}else{g.codes.push(c);toast(`已加入「${g.name}」`)}saveG();renderStock();return}
   const rm=t.closest("[data-rm]");if(rm){const g=curGroup();g.codes=g.codes.filter(x=>x!==rm.dataset.rm);saveG();renderOv();return}
   const mv=t.closest("[data-mv]");if(mv){const g=curGroup(),i=+mv.dataset.mv,j=i+ +mv.dataset.d;if(j>=0&&j<g.codes.length){[g.codes[i],g.codes[j]]=[g.codes[j],g.codes[i]];saveG();renderOv()}return}
+  const lf=t.closest("[data-lbf]");if(lf){const k=lf.dataset.lbf,v=lf.dataset.v;LBF[k]=["mkt","sort"].includes(k)?v:+v;store.set("lbF",LBF);const sc=$("ovBody").scrollTop;renderOv();$("ovBody").scrollTop=sc;return}
   const kb=t.closest("[data-k]");if(kb){kMode=kb.dataset.k;store.set("kMode",kMode);document.querySelectorAll("#ktab button").forEach(b=>b.classList.toggle("on",b.dataset.k===kMode));drawK();ensureHist(ovArg);return}
   const ad=t.closest("[data-adel]");if(ad){alerts.splice(+ad.dataset.adel,1);saveA();ovKind==="stock"?renderStock():renderOv();return}
   const u=t.closest("[data-url]");if(u){openUrl(u.dataset.url);return}
@@ -788,6 +828,7 @@ async function boot(force){
     refreshIntl(),
     loadNews(force),
     loadMops(force),
+    loadLowbase(force).then(()=>{if(ovKind==="lowbase")renderOv();else if(tab==="watch"&&gSel==="p:low")render()}),
     loadDaily(false).then(()=>Promise.all([loadFlows(force),loadInsti(force)])).then(rerender)
   ]);
   rerender();

@@ -157,7 +157,7 @@ def compute(h):
     last = dates[-1]
     items = []
     for c, rs in series.items():
-        if len(rs) < 60 or c not in h["days"][last]:
+        if len(rs) < 60 or c not in h["days"][last] or c.startswith("00"):  # 排除 ETF
             continue
         name, mkt = rs[-1][0], rs[-1][1]
         cl = [r[5] for r in rs]
@@ -176,13 +176,14 @@ def compute(h):
         ma20 = sum(cl[-20:]) / min(20, len(cl))
         ma60 = sum(cl[-60:]) / min(60, len(cl))
         prev = cl[-61:-1] if len(cl) > 60 else cl[:-1]
+        if lens["30"] < 63:  # 連最寬條件都不到 3 個月，App 不會用到，省流量
+            continue
         items.append({
             "c": c, "n": name, "m": mkt, "px": px,
             "ch": round((px / cl[-2] - 1) * 100, 2) if len(cl) > 1 and cl[-2] else 0,
             "len": lens,                                  # 各振幅門檻下的盤整天數
             "pos": round(pos, 1),                         # 一年區間位置 0=最低 100=最高
             "dd": round(dd, 1),                           # 距一年高點 %
-            "lo1y": y_lo, "hi1y": y_hi,
             "bhi": max(base), "blo": min(base),           # 20% 門檻下盤整區間的上下緣
             "v20": round(v20), "v120": round(v120),
             "gap": round(abs(ma20 - ma60) / ma60 * 100, 2) if ma60 else 0,  # 均線糾結程度
