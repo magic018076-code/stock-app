@@ -1,0 +1,31 @@
+name: probe4
+on:
+  push:
+    branches: [probe4]
+permissions:
+  contents: write
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          set +e
+          mkdir out && cd out
+          UA="Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36"
+          curl -sS -m 40 -A "$UA" "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=20261113&type=ALLBUT0999&response=json" -o mi.json
+          python3 -c "
+          import json;d=json.load(open('mi.json'));print('stat',d.get('stat'))
+          for i,t in enumerate(d.get('tables',[])):print(i,t.get('title'),len(t.get('data',[])),t.get('fields'));
+          t=[t for t in d['tables'] if '每日收盤行情' in (t.get('title') or '')][0];print(t['data'][:3])" > mi.txt 2>&1
+          curl -sS -m 40 -A "$UA" "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=20261108&type=ALLBUT0999&response=json" | head -c 300 > mi_holiday.txt
+          curl -sS -m 40 -A "$UA" "https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes?date=2026/11/13&id=&response=json" -o tq.json
+          python3 -c "
+          import json;d=json.load(open('tq.json'));
+          for i,t in enumerate(d.get('tables',[])):print(i,t.get('title'),len(t.get('data',[])),t.get('fields'));print(d['tables'][0]['data'][:3])" > tq.txt 2>&1
+          curl -sS -m 40 -A "$UA" "https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes?date=2026/11/08&id=&response=json" | head -c 400 > tq_holiday.txt
+          curl -sS -m 40 -A "$UA" "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=20251113&type=ALLBUT0999&response=json" -o old.json; python3 -c "import json;d=json.load(open('old.json'));print(d.get('stat'),[len(t.get('data',[])) for t in d.get('tables',[])])" > mi_old.txt
+          # 連續請求測試是否被擋
+          for d in 20261110 20261111 20261112; do curl -sS -m 40 -A "$UA" -o x.json -w "$d %{http_code} %{size_download}\n" "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=$d&type=ALLBUT0999&response=json" >> burst.txt; sleep 2; done
+          rm -f *.json
+      - run: |
+          cd out && git init -q -b probe4-out && git add -A && git -c user.name=bot -c user.email=bot@x commit -qm s && git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" probe4-out
