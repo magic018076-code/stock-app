@@ -1,0 +1,12 @@
+twse_day 200 1974
+tpex_day 200 1432
+yahoo 429 19
+t86 200 198650
+tpex_insti 200 143705
+bfi82u 200 1565
+tpex_3insti_sum 200 1829
+margin_l 200 471705
+margin_o 200 552355
+twse_mi_margn_sum 200 1851
+openapi_t86 200 1006
+tpex_openapi_insti 200 847980
