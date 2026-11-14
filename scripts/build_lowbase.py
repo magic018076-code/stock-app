@@ -1,6 +1,6 @@
 """
 每天收盤後在 GitHub Actions 執行：
-1. 補齊過去約一年的全市場每日行情（證交所 MI_INDEX、櫃買中心 dailyQuotes），存在 cache/hist.json.gz
+1. 補齊過去約十年的全市場每日行情（證交所 MI_INDEX、櫃買中心 dailyQuotes），存在 cache/hist.json.gz
 2. 計算每檔股票的「低檔盤整」指標，輸出 out/lowbase.json 給 App 下載
 
 盤整長度的定義：從最近一個交易日往回推，收盤價的（最高－最低）／最低 一直維持在 X% 以內的交易日數。
@@ -11,8 +11,8 @@ import gzip, json, os, sys, time, datetime as dt, urllib.request, urllib.error
 UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36"
 HIST = "cache/hist.json.gz"
 OUT = "out/lowbase.json"
-DAYS_BACK = 1130         # 往回補的日曆天數（約 3 年多，支援 3 年盤整）
-MAX_FETCH = int(os.environ.get("MAX_FETCH", "1300"))  # 單次最多請求數，避免跑太久
+DAYS_BACK = 3680         # 往回補的日曆天數（約 10 年，支援 10 年盤整）
+MAX_FETCH = int(os.environ.get("MAX_FETCH", "1700"))  # 單次最多請求數，避免跑太久
 SLEEP = 2.2
 THRESH = [10, 15, 20, 25, 30]
 
@@ -42,6 +42,16 @@ def n(v):
         return None
 
 
+def col(fields, names, default):
+    """依欄位名稱找位置（舊資料欄位順序可能不同），找不到就用預設位置"""
+    fields = [str(f).replace(" ", "") for f in (fields or [])]
+    for nm in names:
+        for i, f in enumerate(fields):
+            if f == nm:
+                return i
+    return default
+
+
 def fetch_twse(d):
     j = get(f"https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date={d:%Y%m%d}&type=ALLBUT0999&response=json")
     if j is None:
@@ -50,11 +60,13 @@ def fetch_twse(d):
         return {}  # 休市
     t = next((t for t in j.get("tables", []) if "每日收盤行情" in (t.get("title") or "")), None)
     out = {}
+    f = (t or {}).get("fields")
+    iv, io, ih, il, ic = col(f, ["成交股數"], 2), col(f, ["開盤價"], 5), col(f, ["最高價"], 6), col(f, ["最低價"], 7), col(f, ["收盤價"], 8)
     for r in (t or {}).get("data", []):
         c = str(r[0]).strip()
-        if len(c) != 4 or not c.isdigit():
+        if len(c) != 4 or not c.isdigit() or len(r) <= max(iv, io, ih, il, ic):
             continue
-        o, h, l, cl, v = n(r[5]), n(r[6]), n(r[7]), n(r[8]), n(r[2])
+        o, h, l, cl, v = n(r[io]), n(r[ih]), n(r[il]), n(r[ic]), n(r[iv])
         if cl is None:
             continue
         out[c] = [str(r[1]).strip(), "L", o or cl, h or cl, l or cl, cl, round((v or 0) / 1000)]
@@ -67,11 +79,13 @@ def fetch_tpex(d):
         return None
     t = (j.get("tables") or [{}])[0]
     out = {}
+    f = t.get("fields")
+    ic, io, ih, il, iv = col(f, ["收盤"], 2), col(f, ["開盤"], 4), col(f, ["最高"], 5), col(f, ["最低"], 6), col(f, ["成交股數"], 8)
     for r in t.get("data", []):
         c = str(r[0]).strip()
-        if len(c) != 4 or not c.isdigit():
+        if len(c) != 4 or not c.isdigit() or len(r) <= max(iv, io, ih, il, ic):
             continue
-        cl, o, h, l, v = n(r[2]), n(r[4]), n(r[5]), n(r[6]), n(r[8])
+        cl, o, h, l, v = n(r[ic]), n(r[io]), n(r[ih]), n(r[il]), n(r[iv])
         if cl is None:
             continue
         out[c] = [str(r[1]).strip(), "O", o or cl, h or cl, l or cl, cl, round((v or 0) / 1000)]
@@ -119,9 +133,11 @@ def update(h):
                 closed.add(k)
             print(" ", k, "無資料", flush=True)
             continue
-        if not a or not b:
+        if (not a or not b) and (today - d).days < 30:
             print(" ", k, "只有一個市場有資料，下次重試", flush=True)
             continue
+        if not a or not b:
+            print(" ", k, "只有", "上市" if a else "上櫃", "有資料（舊資料缺漏，先用單一市場）", flush=True)
         a.update(b)
         h["days"][k] = a
         print(" ", k, len(a), "檔", flush=True)
