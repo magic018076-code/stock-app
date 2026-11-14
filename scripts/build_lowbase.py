@@ -11,8 +11,8 @@ import gzip, json, os, sys, time, datetime as dt, urllib.request, urllib.error
 UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36"
 HIST = "cache/hist.json.gz"
 OUT = "out/lowbase.json"
-DAYS_BACK = 380          # 往回補的日曆天數（約一年多）
-MAX_FETCH = int(os.environ.get("MAX_FETCH", "700"))  # 單次最多請求數，避免跑太久
+DAYS_BACK = 1130         # 往回補的日曆天數（約 3 年多，支援 3 年盤整）
+MAX_FETCH = int(os.environ.get("MAX_FETCH", "1300"))  # 單次最多請求數，避免跑太久
 SLEEP = 2.2
 THRESH = [10, 15, 20, 25, 30]
 
