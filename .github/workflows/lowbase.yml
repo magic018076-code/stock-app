@@ -1,0 +1,51 @@
+name: 每日計算低檔盤整
+
+on:
+  schedule:
+    - cron: "40 10 * * 1-5"   # 台灣時間 18:40（收盤資料公布後）
+    - cron: "10 14 * * 1-5"   # 台灣時間 22:10 再補一次（櫃買資料較晚時）
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - scripts/build_lowbase.py
+      - .github/workflows/lowbase.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lowbase
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 取回歷史行情快取
+        uses: actions/cache/restore@v4
+        with:
+          path: cache
+          key: lowbase-hist-${{ github.run_id }}
+          restore-keys: lowbase-hist-
+
+      - name: 補資料並計算
+        run: python3 scripts/build_lowbase.py
+
+      - name: 儲存歷史行情快取
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: cache
+          key: lowbase-hist-${{ github.run_id }}
+
+      - name: 發佈到 data 分支（App 從這裡下載）
+        run: |
+          cd out
+          git init -q -b data
+          git add lowbase.json
+          git -c user.name="stock-app-bot" -c user.email="bot@users.noreply.github.com" commit -qm "lowbase $(date -u +%F)"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" data
