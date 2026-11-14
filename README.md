@@ -7,4 +7,3 @@
   手機打開 App 會自動下載新介面，不用重新安裝。
 - **改到原生部分（圖示、外掛、權限）**：把 `android/app/build.gradle` 的 `versionCode` 加 1，推到 main。
   GitHub Actions 會編譯新 APK，App 內會提示下載安裝。
-EOF
