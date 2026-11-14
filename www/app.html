@@ -6,35 +6,36 @@
 <title>股市智多星</title>
 <style>
 :root{--bg:#000;--bar:#25292f;--hd:#33373e;--sec:#15171b;--line:#2a2c30;--ink:#fff;--mute:#9aa0a8;
-  --up:#ff2a2a;--down:#25d925;--flat:#e8e8e8;--acc:#ffb020;--fs:18px}
+  --up:#ff2a2a;--down:#25d925;--flat:#e8e8e8;--acc:#ffb020;--fs:16px}
+html{font-size:15px}
 body.swap{--up:#25d925;--down:#ff2a2a}
-body.fs-s{--fs:16px}body.fs-l{--fs:20px}
+html.fs-xs{font-size:13px;--fs:14px}html.fs-s{font-size:14px;--fs:15px}html.fs-l{font-size:17px;--fs:19px}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--ink)}
-body{font-family:Roboto,"Noto Sans TC","PingFang TC",sans-serif;font-size:15px;overflow:hidden;-webkit-user-select:none;user-select:none}
+body{font-family:Roboto,"Noto Sans TC","PingFang TC",sans-serif;font-size:.94rem;overflow:hidden;-webkit-user-select:none;user-select:none}
 button{font-family:inherit;color:inherit;background:none;border:0;padding:0}
 .app{display:flex;flex-direction:column;height:100%}
 .up{color:var(--up)}.down{color:var(--down)}.flat{color:var(--flat)}
 .mute{color:var(--mute)}
 
 /* 標題列 */
-.tb{display:flex;align-items:center;height:calc(54px + env(safe-area-inset-top));padding:env(safe-area-inset-top) 6px 0;background:var(--bar);flex:none}
+.tb{display:flex;align-items:center;height:calc(48px + env(safe-area-inset-top));padding:env(safe-area-inset-top) 6px 0;background:var(--bar);flex:none}
 .tb .side{width:92px;display:flex;align-items:center;gap:4px}
 .tb .side.r{justify-content:flex-end}
 .tb .ic{width:44px;height:44px;display:grid;place-items:center}
-.tb .ic svg{width:26px;height:26px;stroke:#fff;fill:none;stroke-width:2}
-.tb .title{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;font-size:1.25rem;font-weight:500;white-space:nowrap;overflow:hidden}
+.tb .ic svg{width:23px;height:23px;stroke:#fff;fill:none;stroke-width:2}
+.tb .title{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;font-size:1.12rem;font-weight:500;white-space:nowrap;overflow:hidden}
 .tb .title .chev{width:26px;height:26px;border:2px solid #fff;border-radius:50%;display:grid;place-items:center;flex:none}
 .tb .title .chev svg{width:14px;height:14px;stroke:#fff;fill:none;stroke-width:2.5}
 
 /* 報價表 */
 .main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;position:relative}
-.qh{position:sticky;top:0;z-index:2;display:grid;grid-template-columns:27% 25% 26% 22%;height:40px;align-items:center;background:var(--hd);font-size:1.05rem}
+.qh{position:sticky;top:0;z-index:2;display:grid;grid-template-columns:27% 25% 26% 22%;height:2.4rem;align-items:center;background:var(--hd);font-size:.95rem}
 .qh>span{text-align:right;padding-right:10px;white-space:nowrap}
 .qh>span:first-child{text-align:center;padding:0;position:relative}
 .qh>span:first-child::before{content:"";position:absolute;left:8px;top:50%;margin-top:-6px;border:6px solid transparent;border-left:8px solid var(--acc)}
 .qh .so{display:inline-block;margin-left:2px;font-size:.75rem;color:#fff}
-.qr{display:grid;grid-template-columns:27% 25% 26% 22%;height:calc(var(--fs)*2.75);align-items:center;border-bottom:1px solid var(--line);font-size:var(--fs);font-variant-numeric:tabular-nums}
+.qr{display:grid;grid-template-columns:27% 25% 26% 22%;height:calc(var(--fs)*2.6);align-items:center;border-bottom:1px solid var(--line);font-size:var(--fs);font-variant-numeric:tabular-nums}
 .qr:active{background:#14161a}
 .qr>div{text-align:right;padding-right:10px;white-space:nowrap;font-weight:500}
 .qr .nm{text-align:center;padding:0 4px;position:relative;height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center}
@@ -48,12 +49,12 @@ button{font-family:inherit;color:inherit;background:none;border:0;padding:0}
 
 /* 底部 */
 nav{display:flex;background:var(--bar);padding:6px 0 calc(env(safe-area-inset-bottom) + 6px);flex:none}
-nav button{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:.82rem;color:#e6e6e6}
-nav button svg{width:30px;height:30px;stroke:currentColor;fill:none;stroke-width:1.6}
+nav button{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:.78rem;color:#e6e6e6}
+nav button svg{width:25px;height:25px;stroke:currentColor;fill:none;stroke-width:1.6}
 nav button.on{color:var(--acc)}
 
 /* 一般列表 */
-.li{display:flex;align-items:center;gap:12px;padding:15px 14px;border-bottom:1px solid var(--line);font-size:1rem}
+.li{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line);font-size:1rem}
 .li .l{flex:1;min-width:0}.li .l small{display:block;color:var(--mute);font-size:.78rem;margin-top:3px}
 .li .r{color:var(--mute);font-size:.88rem}
 .li:active{background:#14161a}
@@ -75,7 +76,7 @@ nav button.on{color:var(--acc)}
 .btn.ghost{background:none;border:1px solid #666;color:#fff;font-weight:400}
 input[type=search],input[type=text]{flex:1;background:#1b1d22;border:1px solid #3a3d44;color:#fff;border-radius:8px;padding:10px 12px;font-size:1rem;font-family:inherit;width:100%}
 .big{padding:14px 14px 10px;border-bottom:1px solid var(--line)}
-.big .px{font-size:2.6rem;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.1}
+.big .px{font-size:2.2rem;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.1}
 .big .ch{font-size:1.15rem;font-variant-numeric:tabular-nums}
 .five{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--line)}
 .five>div{display:grid;grid-template-columns:1fr 1fr;padding:0 10px}
@@ -86,7 +87,7 @@ input[type=search],input[type=text]{flex:1;background:#1b1d22;border:1px solid #
 /* 下拉選單／彈出頁 */
 .mask{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:30;display:none}
 .mask.on{display:block}
-.sheet{position:absolute;left:0;right:0;top:calc(54px + env(safe-area-inset-top));background:#1d2025;max-height:70%;overflow-y:auto;border-bottom:2px solid var(--acc)}
+.sheet{position:absolute;left:0;right:0;top:calc(48px + env(safe-area-inset-top));background:#1d2025;max-height:70%;overflow-y:auto;border-bottom:2px solid var(--acc)}
 .sheet button{display:flex;width:100%;padding:15px 18px;border-bottom:1px solid var(--line);font-size:1.05rem;justify-content:space-between}
 .sheet button.on{color:var(--acc)}
 .sheet .grp{padding:7px 18px;font-size:.78rem;color:var(--mute);background:#15171b}
@@ -131,7 +132,7 @@ input[type=search],input[type=text]{flex:1;background:#1b1d22;border:1px solid #
 .fsum span{flex:1;line-height:1.5}
 .fsum button{border:1px solid var(--acc);color:var(--acc);border-radius:14px;padding:4px 12px;font-size:.82rem;flex:none}
 .fpanel{padding:4px 12px 10px;border-bottom:1px solid var(--line);background:#0c0d10}
-.lc{padding:11px 12px 10px;border-bottom:1px solid var(--line)}
+.lc{padding:9px 12px 8px;border-bottom:1px solid var(--line)}
 .lc:active{background:#14161a}
 .lc .r1{display:flex;align-items:baseline;gap:8px}
 .lc .r1 b{font-size:calc(var(--fs)*1.02);font-weight:500}
@@ -150,7 +151,7 @@ input[type=search],input[type=text]{flex:1;background:#1b1d22;border:1px solid #
 .radar{display:grid;grid-template-columns:1fr 1fr 1fr;border-bottom:1px solid var(--line)}
 .radar div{padding:12px 6px;text-align:center}
 .radar div+div{border-left:1px solid var(--line)}
-.radar b{display:block;font-size:1.6rem;font-weight:500;font-variant-numeric:tabular-nums}
+.radar b{display:block;font-size:1.4rem;font-weight:500;font-variant-numeric:tabular-nums}
 .radar span{font-size:.78rem;color:var(--mute)}
 .lbx{padding:10px 12px;border-bottom:1px solid var(--line);font-size:.9rem;line-height:1.7}
 nav button.pk svg{stroke:var(--acc)}
@@ -206,7 +207,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=5; // 介面版本，要和 ota.json 一致
+const UI_V=6; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:20,fs:"m"},store.get("settings",{}));
 let groups=store.get("groups",null);
@@ -753,7 +754,7 @@ function renderOv(){
   }
   if(ovKind==="settings"){
     T.innerHTML="設定";const o=(k,v,t)=>`<button data-set="${k}" data-v="${v}" class="${String(S[k])===String(v)?"on":""}">${t}</button>`;
-    B.innerHTML=`<div class="li"><div class="l">字體大小<small>報價列表的字</small></div><div class="opt">${o("fs","s","小")+o("fs","m","中")+o("fs","l","大")}</div></div>
+    B.innerHTML=`<div class="li"><div class="l">字體大小<small>整個介面的字</small></div><div class="opt">${o("fs","xs","特小")+o("fs","s","小")+o("fs","m","中")+o("fs","l","大")}</div></div>
       <div class="li"><div class="l">漲跌顏色<small>${S.swap?"綠漲紅跌（國際習慣）":"紅漲綠跌（台股習慣）"}</small></div><button class="sw ${S.swap?"on":""}" id="swColor"></button></div>
       <div class="li"><div class="l">庫存損益含手續費與稅<small>手續費 0.1425%、證交稅 0.3%（ETF 0.1%）</small></div><button class="sw ${S.fee!==false?"on":""}" id="swFee"></button></div>
       <div class="li"><div class="l">自動更新報價<small>日盤、夜盤、美盤交易時間，畫面開著時</small></div><button class="sw ${S.auto?"on":""}" id="swAuto"></button></div>
@@ -850,7 +851,7 @@ function go(t){
   if(t==="watch"||t==="home")refreshRT();if(t==="intl")refreshIntl();
 }
 $("nav").onclick=e=>{const b=e.target.closest("button");if(b)go(b.dataset.t)};
-function applyS(){document.body.classList.toggle("swap",!!S.swap);document.body.classList.remove("fs-s","fs-l");if(S.fs!=="m")document.body.classList.add("fs-"+S.fs)}
+function applyS(){document.body.classList.toggle("swap",!!S.swap);const R=document.documentElement;R.classList.remove("fs-xs","fs-s","fs-l");if(S.fs!=="m")R.classList.add("fs-"+S.fs)}
 document.addEventListener("click",e=>{
   const t=e.target;
   if(t.closest("#tbRef")){toast("更新中…");(tab==="intl"?refreshIntl():boot(true));return}
