@@ -159,6 +159,20 @@ input[type=search],input[type=text]{flex:1;background:#1b1d22;border:1px solid #
 .radar span{font-size:.78rem;color:var(--mute)}
 .lbx{padding:10px 12px;border-bottom:1px solid var(--line);font-size:.9rem;line-height:1.7}
 nav button.pk svg{stroke:var(--acc)}
+.mstrip{display:grid;grid-template-columns:1fr 1fr 1fr;background:#111317;border-bottom:1px solid var(--line)}
+.mstrip div{padding:9px 6px;text-align:center;font-variant-numeric:tabular-nums}
+.mstrip div+div{border-left:1px solid var(--line)}
+.mstrip span{display:block;font-size:.76rem;color:var(--mute)}
+.mstrip b{display:block;font-size:1.12rem;font-weight:500;margin:2px 0}
+.mstrip small{font-size:.72rem}
+.grid{display:grid;grid-template-columns:1fr 1fr 1fr;padding:10px 4px}
+.grid button{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 0 12px}
+.grid button:active{background:#15171b;border-radius:12px}
+.grid svg{width:58px;height:58px;filter:drop-shadow(0 2px 2px rgba(0,0,0,.6))}
+.grid span{font-size:1.02rem;color:#eee;letter-spacing:1px}
+.grid em{position:absolute;top:8px;left:calc(50% + 18px);min-width:22px;height:22px;padding:0 6px;border-radius:11px;background:#e8322a;color:#fff;font-style:normal;font-size:.78rem;font-weight:700;display:grid;place-items:center}
+.qr>div.lu,.qr>div.ld{align-self:stretch;display:flex;align-items:center;justify-content:flex-end}.qr>div.lu{background:#b30d0d;color:#fff}.qr>div.ld{background:#0f7a0f;color:#fff}
+body.swap .qr>div.lu{background:#0f7a0f}body.swap .qr>div.ld{background:#b30d0d}
 </style>
 </head>
 <body>
@@ -175,7 +189,7 @@ nav button.pk svg{stroke:var(--acc)}
     <button data-t="pick" class="pk"><svg viewBox="0 0 32 32"><path d="M4 24h6l3-3h6l3 3h6"/><path d="M22 19l4-10M22 9h4v4"/></svg>低檔選股</button>
     <button data-t="watch"><svg viewBox="0 0 32 32"><path d="M12 9h15M12 16h15M12 23h15"/><circle cx="6.5" cy="9" r="1.3"/><circle cx="6.5" cy="16" r="1.3"/><circle cx="6.5" cy="23" r="1.3"/></svg>自選報價</button>
     <button data-t="intl"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="11"/><ellipse cx="16" cy="16" rx="5" ry="11"/><path d="M5 16h22M7 10h18M7 22h18"/></svg>國際金融</button>
-    <button data-t="more"><svg viewBox="0 0 32 32"><rect x="6" y="6" width="8" height="8" rx="1"/><rect x="18" y="6" width="8" height="8" rx="1"/><rect x="6" y="18" width="8" height="8" rx="1"/><rect x="18" y="18" width="8" height="8" rx="1"/></svg>更多</button>
+    <button data-t="add"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="11"/><path d="M16 10v12M10 16h12"/></svg>加入自選</button>
   </nav>
 </div>
 
@@ -212,7 +226,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=9; // 介面版本，要和 ota.json 一致
+const UI_V=10; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:20,fs:"m"},store.get("settings",{}));
 let groups=store.get("groups",null);
@@ -562,9 +576,11 @@ function bar(q){
 }
 function row(o){
   const k=cls(o.ch),d=o.d??2,cd=o.cd??d,nm=String(o.n||"");
-  return `<div class="qr" ${o.attr||""}><div class="nm"><b class="${nm.length>4?"sm":""}">${esc(nm)}</b>${o.bar??GRAY}</div><div class="${k}">${F(o.px,d)}</div><div class="${k}">${isFinite(o.ch)?sg(o.ch)+F(o.ch,cd):"—"}</div><div class="${k}">${isFinite(o.pct)?F(Math.abs(o.pct),2)+"%":"—"}</div></div>`;
+  const lm=o.lim>0?" lu":o.lim<0?" ld":"";
+  return `<div class="qr" ${o.attr||""}><div class="nm"><b class="${nm.length>4?"sm":""}">${esc(nm)}</b>${o.bar??GRAY}</div><div class="${k}${lm}">${F(o.px,d)}</div><div class="${k}">${isFinite(o.ch)?sg(o.ch)+F(o.ch,cd):"—"}</div><div class="${k}">${isFinite(o.pct)?F(Math.abs(o.pct),2)+"%":"—"}</div></div>`;
 }
-const stockRow=c=>{const q=quote(c);return row({n:q.n,px:q.px,ch:q.ch,pct:q.pct,d:pxD(q.px),cd:2,bar:bar(q),attr:`data-code="${esc(c)}"`})};
+const limOf=q=>!isFinite(q.px)?0:(isFinite(q.u)&&q.u>0&&q.px>=q.u)||(!isFinite(q.u)&&q.pct>=9.5)?1:(isFinite(q.w)&&q.w>0&&q.px<=q.w)||(!isFinite(q.w)&&q.pct<=-9.5)?-1:0;
+const stockRow=c=>{const q=quote(c);return row({n:q.n,px:q.px,ch:q.ch,pct:q.pct,d:pxD(q.px),cd:2,bar:bar(q),lim:limOf(q),attr:`data-code="${esc(c)}"`})};
 function head(sortable){
   const s=k=>sortable&&sortSt.k===k?`<span class="so">${sortSt.d>0?"▲":"▼"}</span>`:"";
   return `<div class="qh"><span>商品</span><span data-sort="${sortable?"px":""}">成交${s("px")}</span><span data-sort="${sortable?"ch":""}">漲跌${s("ch")}</span><span data-sort="${sortable?"pct":""}">幅度${s("pct")}</span></div>`;
@@ -581,7 +597,10 @@ const IC={
   ref:`<svg viewBox="0 0 24 24"><path d="M19 12a7 7 0 11-2.05-4.95"/><path d="M19 4v5h-5"/></svg>`,
   search:`<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>`,
   chev:`<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>`,
-  add:`<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>`
+  add:`<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>`,
+  back:`<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>`,
+  edit:`<svg viewBox="0 0 24 24"><path d="M4 20h16"/><path d="M14.5 5.5l3 3L9 17H6v-3z"/></svg>`,
+  lst:`<svg viewBox="0 0 24 24"><rect x="4" y="3.5" width="16" height="17" rx="1"/><path d="M8 8h8M8 12h8M8 16h8"/></svg>`
 };
 function setTB(title,{dd=false,left="",right=""}={}){
   $("tbT").innerHTML=`<span>${esc(title)}</span>${dd?`<span class="chev">${IC.chev}</span>`:""}`;
@@ -607,12 +626,52 @@ function openSheet(kind){
 $("mask").onclick=e=>{const b=e.target.closest("[data-sel]");if(b){const k=$("sheet").dataset.kind;if(k.startsWith("lb:")){const f=k.slice(3),v=b.dataset.sel;LBF[f]=["mkt","sort"].includes(f)?v:+v;store.set("lbF",LBF);$("mask").classList.remove("on");render();return}if(k==="watch"){gSel=b.dataset.sel;store.set("gSel",gSel);sortSt={k:"",d:0}}else{iSel=b.dataset.sel;store.set("iSel",iSel)}render();if(k==="watch")refreshRT();if(k==="intl")refreshIntl()}$("mask").classList.remove("on")};
 
 /* ===== 首頁 ===== */
+/* ===== 首頁功能選單（大圖示） ===== */
+const GI={
+ watch:`<rect x="8" y="12" width="10" height="9" rx="2" fill="#2f7de1"/><rect x="8" y="27" width="10" height="9" rx="2" fill="#2f7de1"/><rect x="8" y="42" width="10" height="9" rx="2" fill="#2f7de1"/><rect x="22" y="13" width="34" height="7" rx="2" fill="url(#gP)"/><rect x="22" y="28" width="34" height="7" rx="2" fill="url(#gP)"/><rect x="22" y="43" width="34" height="7" rx="2" fill="url(#gP)"/><path d="M44 22l3.6 7.4 8.1 1.1-5.9 5.6 1.4 8-7.2-3.9-7.2 3.9 1.4-8-5.9-5.6 8.1-1.1z" fill="#ffc21a" stroke="#c98a00" stroke-width="1.2"/>`,
+ pick:`<rect x="6" y="8" width="52" height="48" rx="6" fill="#1d2a3a"/><path d="M10 44h12l4-3h10l4 3" fill="none" stroke="#7fb3ff" stroke-width="3" stroke-linecap="round"/><path d="M38 44l12-24" stroke="#ff4a3a" stroke-width="4" stroke-linecap="round"/><path d="M42 19h9v9" fill="none" stroke="#ff4a3a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><rect x="10" y="38" width="28" height="10" rx="2" fill="#ffb020" opacity=".25"/>`,
+ index:`<path d="M10 52V10" stroke="#2f6fd6" stroke-width="4" stroke-linecap="round"/><path d="M10 52h46" stroke="#2f6fd6" stroke-width="4" stroke-linecap="round"/><path d="M12 48l10-16 9 8 10-18 9 12 6-6v20H12z" fill="url(#gP)"/><path d="M12 48l10-16 9 8 10-18 9 12 6-6" fill="none" stroke="#e8322a" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/>`,
+ ind:`<rect x="9" y="8" width="46" height="48" rx="4" fill="url(#gP)"/><rect x="16" y="15" width="20" height="5" rx="1" fill="#2fae3a"/><rect x="16" y="24" width="32" height="5" rx="1" fill="#e8442a"/><rect x="16" y="33" width="24" height="5" rx="1" fill="#e8442a"/><rect x="16" y="42" width="14" height="5" rx="1" fill="#2fae3a"/>`,
+ fut:`<rect x="8" y="20" width="48" height="32" rx="5" fill="url(#gG)" stroke="#9a6b00" stroke-width="1.5"/><path d="M24 20v-5a3 3 0 013-3h10a3 3 0 013 3v5" fill="none" stroke="#9a6b00" stroke-width="3"/><path d="M8 32h48" stroke="#9a6b00" stroke-width="1.5"/><circle cx="32" cy="34" r="8" fill="#e8322a"/><text x="32" y="38.5" text-anchor="middle" font-size="12" font-weight="700" fill="#ffd84a">$</text>`,
+ intl:`<circle cx="32" cy="32" r="23" fill="url(#gB)"/><path d="M20 20c5 1 6 6 3 9s-1 8 4 8 3 7 0 10M38 12c-2 4 1 7 5 7s6 5 3 9 2 7 6 6" fill="none" stroke="#e9f2ff" stroke-width="4" stroke-linecap="round"/><path d="M16 46c3 5 9 8 14 8" fill="none" stroke="#ffb020" stroke-width="3.5" stroke-linecap="round"/><path d="M27 50l3 4-4 2" fill="none" stroke="#ffb020" stroke-width="3" stroke-linecap="round"/>`,
+ holds:`<circle cx="32" cy="33" r="21" fill="#e8e1cc"/><path d="M32 33V12a21 21 0 0118 31z" fill="#e8442a"/><path d="M32 33l18 10a21 21 0 01-29 6z" fill="#2f7de1"/><path d="M32 33L21 49a21 21 0 01-6-27z" fill="#2fae3a"/><circle cx="32" cy="33" r="21" fill="none" stroke="#fff" stroke-width="1.5" opacity=".6"/>`,
+ alerts:`<path d="M32 9c-9 0-15 7-15 16v11l-5 7h40l-5-7V25c0-9-6-16-15-16z" fill="url(#gG)" stroke="#9a6b00" stroke-width="1.5"/><circle cx="32" cy="49" r="5" fill="#9a6b00"/><circle cx="46" cy="14" r="6" fill="#e8322a"/>`,
+ news:`<rect x="8" y="12" width="48" height="40" rx="4" fill="url(#gP)"/><rect x="13" y="17" width="5" height="5" fill="#e8322a"/><text x="37" y="23" text-anchor="middle" font-size="9" font-weight="800" fill="#1f5fc7">NEWS</text><path d="M14 31h36M14 38h36M14 45h36" stroke="#2f6fd6" stroke-width="3"/>`,
+ mops:`<path d="M12 26h8l20-10v32L20 38h-8z" fill="url(#gB)"/><path d="M16 38l4 12h6l-3-12" fill="#1f5fc7"/><path d="M46 24c3 2 3 10 0 12M50 20c6 4 6 16 0 20" fill="none" stroke="#ffb020" stroke-width="3" stroke-linecap="round"/>`,
+ newlist:`<path d="M20 12h24v10a12 12 0 01-24 0z" fill="url(#gG)" stroke="#9a6b00" stroke-width="1.5"/><path d="M20 15h-7c0 7 3 11 8 11M44 15h7c0 7-3 11-8 11" fill="none" stroke="#c98a00" stroke-width="3"/><path d="M29 33h6v9h-6z" fill="#c98a00"/><rect x="21" y="42" width="22" height="7" rx="2" fill="url(#gG)" stroke="#9a6b00"/><text x="32" y="25" text-anchor="middle" font-size="8" font-weight="800" fill="#9a2b00">NEW</text>`,
+ otchist:`<rect x="10" y="12" width="44" height="42" rx="5" fill="#f4f1e6"/><rect x="10" y="12" width="44" height="12" rx="5" fill="#2f6fd6"/><rect x="18" y="8" width="4" height="9" rx="2" fill="#555"/><rect x="42" y="8" width="4" height="9" rx="2" fill="#555"/><text x="32" y="47" text-anchor="middle" font-size="18" font-weight="800" fill="#e8322a">櫃</text>`,
+ settings:`<path d="M28 8h8l1.5 6.5 5 2 5.5-3.5 5.5 5.5-3.5 5.5 2 5 6.5 1.5v8l-6.5 1.5-2 5 3.5 5.5-5.5 5.5-5.5-3.5-5 2L36 56h-8l-1.5-6.5-5-2-5.5 3.5-5.5-5.5 3.5-5.5-2-5L8 36v-8l6.5-1.5 2-5-3.5-5.5 5.5-5.5 5.5 3.5 5-2z" fill="#8c95a3"/><circle cx="32" cy="32" r="9" fill="#25292f"/>`,
+ status:`<circle cx="32" cy="32" r="22" fill="#1f5fc7"/><circle cx="32" cy="32" r="18" fill="#f8f3e3"/><path d="M32 18v14h10" fill="none" stroke="#e8322a" stroke-width="3.5" stroke-linecap="round"/><circle cx="32" cy="32" r="2.5" fill="#333"/>`,
+ upd:`<path d="M26 8h12v20h9L32 44 17 28h9z" fill="url(#gB)"/><path d="M10 44l22 12 22-12-8-4-14 8-14-8z" fill="url(#gG)" stroke="#9a6b00" stroke-width="1.2"/>`
+};
+const GDEF=`<defs><linearGradient id="gP" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fffaf0"/><stop offset="1" stop-color="#e7dcc0"/></linearGradient><linearGradient id="gG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe07a"/><stop offset="1" stop-color="#d49a12"/></linearGradient><linearGradient id="gB" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5aa8ff"/><stop offset="1" stop-color="#1546a8"/></linearGradient></defs>`;
+const TILES=[["watch","自選報價"],["pick","低檔選股"],["index","指數行情"],["ind","類股報價"],["fut","台指期貨"],["intl","國際金融"],["holds","庫存損益"],["alerts","價格提醒"],["news","財經新聞"],["mops","重大訊息"],["newlist","新上市櫃"],["otchist","上櫃家數"],["settings","設定"],["status","資料狀態"],["upd","檢查更新"]];
 function renderHome(){
   setTB("股市智多星",{right:icBtn("tbSearch","search")+icBtn("tbRef","ref")});
+  const t=idx.tse,o=idx.otc,dn=fut.day.find(x=>!x.spot&&/^TXF/.test(x.id));
+  const box=(n,q,d)=>{const k=q?cls(q.ch):"";return `<div data-tile="index"><span>${n}</span><b class="${k}">${q?F(q.z??q.px,d):"—"}</b><small class="${k}">${q&&isFinite(q.ch)?sg(q.ch)+F(q.ch,d)+"　"+F(Math.abs(q.pct),2)+"%":"&nbsp;"}</small></div>`};
+  const sigN=lowbase?lbView().sig.length:0;
+  let h=`<div class="mstrip">${box("加權指",t,2)+box("櫃買指",o,2)+box("台指近",dn,0)}</div>`;
+  h+=`<div class="grid">${TILES.map(([k,n])=>`<button data-tile="${k}"><svg viewBox="0 0 64 64">${GI[k]}</svg><span>${n}</span>${k==="pick"&&sigN?`<em>${sigN}</em>`:k==="alerts"&&alerts.some(a=>a.on)?`<em>${alerts.filter(a=>a.on).length}</em>`:""}</button>`).join("")}</div>`;
+  h+=`<div class="foot" style="text-align:center">版本 ${esc(myVer.name)}・介面 ${window.__OTA_V||UI_V}・資料僅供參考，不構成投資建議</div>`;
+  $("main").innerHTML=`<svg width="0" height="0" style="position:absolute">${GDEF}</svg>`+h;
+}
+function tileGo(k){
+  const ov=["ind","alerts","news","mops","newlist","otchist","settings","status"];
+  if(ov.includes(k)){openOv(k);return}
+  if(k==="watch"){if(gSel==="h:"){gSel="g:0";store.set("gSel",gSel)}go("watch");return}
+  if(k==="holds"){gSel="h:";store.set("gSel",gSel);go("watch");return}
+  if(k==="fut"){iSel=isNightOpen()?"night":"day";store.set("iSel",iSel);go("intl");return}
+  if(k==="intl"){iSel="us";store.set("iSel",iSel);go("intl");return}
+  if(k==="upd"){toast("檢查中…");checkUpdate(true);return}
+  go(k);
+}
+function renderMarket(){
+  setTB("指數行情",{left:icBtn("tbHome","back"),right:icBtn("tbRef","ref")});
   const t=idx.tse,o=idx.otc,dn=fut.day.find(x=>!x.spot&&/^TXF/.test(x.id)),nn=fut.night.find(x=>!x.spot&&/^TXF/.test(x.id)),mn=fut.day.find(x=>!x.spot&&/^MXF/.test(x.id));
   const ir=(n,q,d=2,attr="")=>q?row({n,px:q.z??q.px,ch:q.ch,pct:q.pct,d,cd:d,attr}):row({n,px:NaN,ch:NaN,pct:NaN,attr});
   let h="";
-  if(lowbase){const v=lbView(),top=v.sig.slice(0,5);
+  if(false){const v=lbView(),top=v.sig.slice(0,5);
     h+=`<div class="sec"><span>低檔起漲雷達</span><span data-tab="pick">資料到 ${esc(lowbase.date)}・全部 ›</span></div>
      <div class="radar"><div data-lbgo="all"><b style="color:var(--acc)">${v.all.length}</b><span>低檔盤整中</span></div><div data-lbgo="sig"><b class="up">${v.sig.length}</b><span>出現起漲訊號</span></div><div data-lbgo="bo"><b class="up">${v.bo.length}</b><span>今日突破</span></div></div>`+
      (top.map(x=>lbCard(x)).join("")||`<div class="empty" style="padding:18px">今天沒有出現起漲訊號的低檔股</div>`);
@@ -666,12 +725,14 @@ function renderHolds(){
 function renderWatch(){
   if(gSel==="h:")return renderHolds();
   const g=curGroup(),p=PRESET.find(x=>x[0]===gSel);
-  setTB(g?g.name:p?p[1]:gSel==="p:low"?"低檔盤整":"自選報價",{dd:"watch",left:icBtn("tbEdit","list"),right:icBtn("tbAdd","add")+icBtn("tbRef","ref")});
+  setTB(g?g.name:p?p[1]:gSel==="p:low"?"低檔盤整":"自選報價",{dd:"watch",left:icBtn("tbHome","back"),right:icBtn("tbRef","ref")+(g?icBtn("tbEdit","edit"):"")});
   const codes=g?g.codes:presetCodes(gSel);
   let h=head(true);
+  {const t=idx.tse,dn=fut.day.find(x=>!x.spot&&/^TXF/.test(x.id));
+   h+=(t?row({n:"加權指",px:t.z,ch:t.ch,pct:t.pct,d:2,attr:'data-tile="index"'}):"")+(dn?row({n:"台指近",px:dn.px,ch:dn.ch,pct:dn.pct,d:0,cd:0,attr:'data-intl="day"'}):"");}
   h+=sortCodes(codes).map(stockRow).join("")||`<div class="empty">${g?"這個群組還沒有股票<br><br>按右上角 ＋ 新增":"讀取中…"}</div>`;
   const live=codes.some(c=>rt[c]&&!rt[c].stale);
-  h+=`<div class="foot">${live?"即時報價・"+nowStr()+" 更新":daily.date?"收盤價 "+daily.date:""}${gSel==="p:low"?"・條件：盤整 "+mon(LBF.per)+"以上、振幅 "+LBF.amp+"%、"+(LBF.pos>=100?"位置不限":"一年位置 ≤"+LBF.pos+"%")+"（可在「低檔選股」調整）":!g?"・排行依前一交易日收盤":""}<br>點表頭「成交／漲跌／幅度」排序；點標題切換清單；左上角編輯清單。<br>名稱下方條狀：綠＝委賣量、紅＝委買量。</div>`;
+  h+=`<div class="foot">${live?"即時報價・"+nowStr()+" 更新":daily.date?"收盤價 "+daily.date:""}${gSel==="p:low"?"・條件：盤整 "+mon(LBF.per)+"以上、振幅 "+LBF.amp+"%、"+(LBF.pos>=100?"位置不限":"一年位置 ≤"+LBF.pos+"%")+"（可在「低檔選股」調整）":!g?"・排行依前一交易日收盤":""}<br>點表頭「成交／漲跌／幅度」排序；點標題切換清單；右上角 ✎ 編輯清單。<br>名稱下方條狀：綠＝委賣量、紅＝委買量。</div>`;
   $("main").innerHTML=h;
 }
 
@@ -870,13 +931,13 @@ async function openStock(c){
 let tab="home";
 function render(){
   document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.t===tab));
-  ({home:renderHome,pick:renderPick,watch:renderWatch,intl:renderIntl,more:renderMore}[tab]||renderHome)();
+  ({home:renderHome,market:renderMarket,pick:renderPick,watch:renderWatch,intl:renderIntl,more:renderMore}[tab]||renderHome)();
 }
 function go(t){
   if(t==="add"){searchQ="";openOv("search");setTimeout(()=>$("sq")&&$("sq").focus(),80);return}
   if(t==="lowbase")t="pick";
   tab=t;$("main").scrollTop=0;render();
-  if(t==="watch"||t==="home"||t==="pick")refreshRT();if(t==="intl")refreshIntl();
+  if(t==="watch"||t==="home"||t==="pick"||t==="market")refreshRT();if(t==="home"||t==="market")refreshIntl();if(t==="intl")refreshIntl();
 }
 $("nav").onclick=e=>{const b=e.target.closest("button");if(b)go(b.dataset.t)};
 function applyS(){document.body.classList.toggle("swap",!!S.swap);const R=document.documentElement;R.classList.remove("fs-xs","fs-s","fs-l");if(S.fs!=="m")R.classList.add("fs-"+S.fs)}
@@ -884,6 +945,8 @@ document.addEventListener("click",e=>{
   const t=e.target;
   if(t.closest("#tbRef")){toast("更新中…");(tab==="intl"?refreshIntl():boot(true));return}
   if(t.closest("#tbSearch")){go("add");return}
+  if(t.closest("#tbHome")){go("home");return}
+  const tl=t.closest("[data-tile]");if(tl){tileGo(tl.dataset.tile);return}
   if(t.closest("#tbEdit")){openOv("edit");return}
   if(t.closest("#checkUpd")){toast("檢查中…");checkUpdate(true);return}
   const so=t.closest("[data-sort]");if(so&&so.dataset.sort){const k=so.dataset.sort;sortSt=sortSt.k!==k?{k,d:-1}:sortSt.d===-1?{k,d:1}:{k:"",d:0};ovKind==="indlist"?renderOv():render();return}
@@ -940,11 +1003,11 @@ async function refreshRT(){
   try{await loadRT(codes.concat(ovKind==="stock"?[ovArg]:[],alerts.filter(a=>a.on).map(a=>a.c),Object.keys(holds)))}catch(e){mark("rt",false)}
   rtBusy=false;rerender();
 }
-async function refreshIntl(){await Promise.all([loadUS(),loadFutures()]);if(!ovKind&&(tab==="intl"||tab==="home"))render()}
+async function refreshIntl(){await Promise.all([loadUS(),loadFutures()]);if(!ovKind&&(tab==="intl"||tab==="home"||tab==="market"||tab==="watch"))render()}
 function schedule(){clearInterval(timer);timer=setInterval(()=>{
   if(document.hidden||!S.auto)return;
   if(tab==="intl"){if(isNightOpen()||isTrading()||iSel.startsWith("us"))refreshIntl();return}
-  if(isTrading()&&(tab==="watch"||tab==="home"||tab==="pick"||ovKind==="stock"||alerts.some(a=>a.on)))refreshRT();
+  if(isTrading()&&(tab==="watch"||tab==="home"||tab==="market"||tab==="pick"||ovKind==="stock"||alerts.some(a=>a.on)))refreshRT();
   if(tab==="home"&&isNightOpen())loadFutures().then(()=>{if(tab==="home"&&!ovKind)render()});
 },S.int*1000)}
 async function boot(force){
