@@ -205,26 +205,35 @@ function fmtBig(n){if(!isFinite(n))return"—";if(n>=1e8)return fmtC(n/1e8,1)+"�
 const cls=c=>!isFinite(c)||c===0?"flat":c>0?"up":"down";
 const sg=c=>isFinite(c)&&c>0?"+":"";
 function toast(m){const t=$("toast");t.textContent=m;t.classList.add("on");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("on"),1800)}
-async function getJSON(url){const r=await fetch(url,{headers:{Accept:"application/json"}});if(!r.ok)throw new Error("HTTP "+r.status);let j=await r.json();if(typeof j==="string")j=JSON.parse(j.trim());return j}
-async function postJSON(url,body){const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify(body)});if(!r.ok)throw new Error("HTTP "+r.status);let j=await r.json();if(typeof j==="string")j=JSON.parse(j);return j}
+function withTO(p,ms){return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error("逾時")),ms))])}
+async function getJSON(url,ms=20000){const r=await withTO(fetch(url,{headers:{Accept:"application/json"}}),ms);if(!r.ok)throw new Error("HTTP "+r.status);let j=await r.json();if(typeof j==="string")j=JSON.parse(j.trim());return j}
+async function postJSON(url,body,ms=15000){const r=await withTO(fetch(url,{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify(body)}),ms);if(!r.ok)throw new Error("HTTP "+r.status);let j=await r.json();if(typeof j==="string")j=JSON.parse(j);return j}
 function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacitor.Plugins.Browser.open({url:u});return}}catch(e){}window.open(u,"_blank")}
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=8; // 介面版本，要和 ota.json 一致
+const UI_V=9; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:20,fs:"m"},store.get("settings",{}));
 let groups=store.get("groups",null);
 if(!groups){groups=[{name:"自選股",codes:store.get("watch",["2330","2317","2454","3008"])}]}
 let gSel=store.get("gSel","g:0"),iSel=store.get("iSel","us"),sortSt={k:"",d:0};
 let daily={},info={},rt={},news=[],mops=[],idx={tse:null,otc:null},fut={day:[],night:[]},us=[],status=store.get("status",{});
+// 打開 App 先顯示上次的報價（標示為非即時），連上後馬上換成即時
+(()=>{const sn=store.get("rtSnap",null);if(sn&&Date.now()-sn.at<20*3600e3){for(const c in sn.rt)rt[c]=Object.assign(sn.rt[c],{stale:true});idx=sn.idx||idx}})();
 const saveS=()=>store.set("settings",S),saveG=()=>store.set("groups",groups);
 function mark(k,ok){status[k]={t:nowStr(),ok};store.set("status",status)}
 const curGroup=()=>{const m=/^g:(\d+)$/.exec(gSel);return m?groups[+m[1]]||groups[0]:null};
 const allWatch=()=>[...new Set(groups.flatMap(g=>g.codes))];
 
 /* ===== 資料 ===== */
-async function cached(key,maxAgeH,loader,force){
+const inflight={};
+function cached(key,maxAgeH,loader,force){
+  if(inflight[key])return inflight[key];
+  const p=cached0(key,maxAgeH,loader,force);inflight[key]=p;
+  const done=()=>{delete inflight[key]};p.then(done,done);return p;
+}
+async function cached0(key,maxAgeH,loader,force){
   const c=store.get("c_"+key,null);
   if(!force&&c&&(Date.now()-c.at)<maxAgeH*3600e3)return c.v;
   try{const v=await loader();store.set("c_"+key,{at:Date.now(),v});mark(key,true);return v}
@@ -267,14 +276,21 @@ async function loadMops(force){
     out.sort((a,b)=>(b.d+b.tm).localeCompare(a.d+a.tm));return out.slice(0,400);
   },force);
 }
-const exOf=c=>{const m=(info.rows&&info.rows[c]&&info.rows[c][0])||(daily.rows&&daily.rows[c]&&daily.rows[c][1]);return m==="上櫃"?"otc":"tse"};
+let exMap=store.get("exMap",{});
+const exOf=c=>{const m=(info.rows&&info.rows[c]&&info.rows[c][0])||(daily.rows&&daily.rows[c]&&daily.rows[c][1]);if(m)return m==="上櫃"?"otc":"tse";const x=lbItem(c);if(x)return x.m==="O"?"otc":"tse";return exMap[c]||""};
 const split=s=>String(s||"").split("_").filter(x=>x!=="").map(num);
 async function loadRT(codes){
   const list=[...new Set(codes)].filter(Boolean);
-  const keys=["tse_t00.tw","otc_o00.tw",...list.map(c=>`${exOf(c)}_${c}.tw`)];
-  for(let i=0;i<keys.length;i+=40){
-    const j=await getJSON("https://mis.twse.com.tw/stock/api/getStockInfo.jsp?json=1&delay=0&ex_ch="+encodeURIComponent(keys.slice(i,i+40).join("|"))+"&_="+Date.now());
+  // 不知道上市或上櫃的股票兩邊都查（只有一邊會有資料）
+  const keys=["tse_t00.tw","otc_o00.tw",...list.flatMap(c=>{const e=exOf(c);return e?[`${e}_${c}.tw`]:[`tse_${c}.tw`,`otc_${c}.tw`]})];
+  const batches=[];for(let i=0;i<keys.length;i+=40)batches.push(keys.slice(i,i+40));
+  // 所有批次同時送出，不再一批等一批
+  const res=await Promise.allSettled(batches.map(b=>getJSON("https://mis.twse.com.tw/stock/api/getStockInfo.jsp?json=1&delay=0&ex_ch="+encodeURIComponent(b.join("|"))+"&_="+Date.now(),6000)));
+  if(!res.some(r=>r.status==="fulfilled"))throw new Error("rt failed");
+  let exNew=false;
+  for(const rr of res){if(rr.status!=="fulfilled")continue;const j=rr.value;
     for(const m of j.msgArray||[]){
+      if(m.c&&m.ex&&!exMap[m.c]){exMap[m.c]=m.ex;exNew=true}
       const y=num(m.y);let z=num(m.z);if(!isFinite(z))z=num(m.pz);
       const bp=split(m.b),bs=split(m.g),ap=split(m.a),as=split(m.f);
       if(!isFinite(z))z=bp[0]>0?bp[0]:y;
@@ -282,7 +298,10 @@ async function loadRT(codes){
       if(m.c==="t00")idx.tse=q;else if(m.c==="o00")idx.otc=q;else rt[m.c]=q;
     }
   }
+  if(exNew)store.set("exMap",exMap);
   mark("rt",true);
+  // 存一份快照，下次打開 App 立刻顯示
+  store.set("rtSnap",{at:Date.now(),rt,idx});
 }
 async function loadFut(mt,cid){
   const j=await postJSON("https://mis.taifex.com.tw/futures/api/getQuoteList",{MarketType:mt,SymbolType:"F",KindID:"1",CID:cid,ExpireMonth:"",RowSize:"全部",PageNo:"",SortColumn:"",AscDesc:"A"});
@@ -419,9 +438,10 @@ const stars=s=>s?`<span class="stars">${"★".repeat(Math.min(s,5))}</span>`:"";
 let LBV=store.get("lbV","sig");
 function lbView(f=LBF){const a=lbList(f),bySig=(x,y)=>(lbSig(y).s-lbSig(x).s)||(y.len[f.amp]-x.len[f.amp]);return {all:a,sig:a.filter(x=>lbSig(x).s>=2).sort(bySig),bo:a.filter(x=>x.bo).sort(bySig)}}
 function lbCard(x,amp=LBF.amp){
-  const sg=lbSig(x),k=x.ch>0?"up":x.ch<0?"down":"flat",d=v=>F(v,v>=1000?0:v>=100?1:2);
-  const p=x.bhi>x.blo?Math.max(0,Math.min(100,(x.px-x.blo)/(x.bhi-x.blo)*100)):50;
-  return `<div class="lc" data-code="${x.c}"><div class="r1"><b>${esc(x.n)}</b><span class="cd">${x.c}${x.m==="O"?" 櫃":""}</span>${stars(sg.s)}<span class="px ${k}">${F(x.px,pxD(x.px))}</span><span class="pc ${k}">${x.ch>0?"+":""}${F(x.ch,2)}%</span></div>
+  const sg=lbSig(x),d=v=>F(v,v>=1000?0:v>=100?1:2),r=rt[x.c],lv=r&&isFinite(r.z)&&isFinite(r.pct);
+  const px=lv?r.z:x.px,ch=lv?r.pct:x.ch,k=ch>0?"up":ch<0?"down":"flat";
+  const p=x.bhi>x.blo?Math.max(0,Math.min(100,(px-x.blo)/(x.bhi-x.blo)*100)):50;
+  return `<div class="lc" data-code="${x.c}"><div class="r1"><b>${esc(x.n)}</b><span class="cd">${x.c}${x.m==="O"?" 櫃":""}</span>${stars(sg.s)}<span class="px ${k}">${F(px,pxD(px))}</span><span class="pc ${k}">${ch>0?"+":""}${F(ch,2)}%</span></div>
    <div class="r2"><span>盤整 <em>${mon(x.len[amp]||0)}</em></span><span>一年位置 <em>${F(x.pos,0)}%</em></span><span>距高點 ${F(x.dd,0)}%</span></div>
    <div class="rng"><i style="left:${p}%"></i></div><div class="rngl"><span>區間低 ${d(x.blo)}</span><span>現價在區間 ${F(p,0)}%</span><span>區間高 ${d(x.bhi)}</span></div>
    ${sg.t.length?`<div class="tags">${sg.t.map(([n,c])=>`<span class="tg ${c}">${n}</span>`).join("")}</div>`:""}</div>`;
@@ -524,7 +544,7 @@ const lbItem=c=>lowbase&&(lowbase._m||(lowbase._m=Object.fromEntries(lowbase.ite
 function nameOf(c){return (lbItem(c)&&lbItem(c).n)||(rt[c]&&rt[c].n)||(daily.rows&&daily.rows[c]&&daily.rows[c][0])||(info.rows&&info.rows[c]&&info.rows[c][7])||c}
 function quote(c){
   const r=rt[c];
-  if(r&&isFinite(r.z))return {c,n:r.n||nameOf(c),px:r.z,ch:r.ch,pct:r.pct,o:r.o,h:r.h,l:r.l,v:r.v,y:r.y,u:r.u,w:r.w,t:r.t,live:true,r};
+  if(r&&isFinite(r.z))return {c,n:r.n||nameOf(c),px:r.z,ch:r.ch,pct:r.pct,o:r.o,h:r.h,l:r.l,v:r.v,y:r.y,u:r.u,w:r.w,t:r.t,live:!r.stale,r};
   const d=daily.rows&&daily.rows[c];
   if(d){const y=d[2]-d[3];return {c,n:d[0],px:d[2],ch:d[3],pct:y?d[3]/y*100:NaN,o:d[4],h:d[5],l:d[6],v:d[7],val:d[8],y,live:false}}
   const x=lbItem(c);if(x){const y=x.px/(1+x.ch/100);return {c,n:x.n,px:x.px,ch:x.px-y,pct:x.ch,y,live:false}}
@@ -650,7 +670,7 @@ function renderWatch(){
   const codes=g?g.codes:presetCodes(gSel);
   let h=head(true);
   h+=sortCodes(codes).map(stockRow).join("")||`<div class="empty">${g?"這個群組還沒有股票<br><br>按右上角 ＋ 新增":"讀取中…"}</div>`;
-  const live=codes.some(c=>rt[c]);
+  const live=codes.some(c=>rt[c]&&!rt[c].stale);
   h+=`<div class="foot">${live?"即時報價・"+nowStr()+" 更新":daily.date?"收盤價 "+daily.date:""}${gSel==="p:low"?"・條件：盤整 "+mon(LBF.per)+"以上、振幅 "+LBF.amp+"%、"+(LBF.pos>=100?"位置不限":"一年位置 ≤"+LBF.pos+"%")+"（可在「低檔選股」調整）":!g?"・排行依前一交易日收盤":""}<br>點表頭「成交／漲跌／幅度」排序；點標題切換清單；左上角編輯清單。<br>名稱下方條狀：綠＝委賣量、紅＝委買量。</div>`;
   $("main").innerHTML=h;
 }
@@ -856,7 +876,7 @@ function go(t){
   if(t==="add"){searchQ="";openOv("search");setTimeout(()=>$("sq")&&$("sq").focus(),80);return}
   if(t==="lowbase")t="pick";
   tab=t;$("main").scrollTop=0;render();
-  if(t==="watch"||t==="home")refreshRT();if(t==="intl")refreshIntl();
+  if(t==="watch"||t==="home"||t==="pick")refreshRT();if(t==="intl")refreshIntl();
 }
 $("nav").onclick=e=>{const b=e.target.closest("button");if(b)go(b.dataset.t)};
 function applyS(){document.body.classList.toggle("swap",!!S.swap);const R=document.documentElement;R.classList.remove("fs-xs","fs-s","fs-l");if(S.fs!=="m")R.classList.add("fs-"+S.fs)}
@@ -910,9 +930,13 @@ $("updX").onclick=()=>{$("updBar").classList.remove("on");if(remoteVer)store.set
 /* ===== 更新排程 ===== */
 let timer=null,rtBusy=false;
 function rerender(){checkAlerts();const ae=document.activeElement;if(ae&&ae.tagName==="INPUT"&&$("ov").contains(ae))return;if(!ovKind)render();else if(ovKind==="stock")renderStock()}
+let rtBusyAt=0;
 async function refreshRT(){
-  if(rtBusy)return;rtBusy=true;
-  const g=curGroup(),codes=tab==="watch"?(g?g.codes:gSel==="h:"?Object.keys(holds):presetCodes(gSel).slice(0,40)):groups[0].codes.slice(0,8);
+  if(rtBusy&&Date.now()-rtBusyAt<12000)return;rtBusy=true;rtBusyAt=Date.now();
+  const g=curGroup(),lb=lowbase?lbView():null;
+  const codes=tab==="watch"?(g?g.codes:gSel==="h:"?Object.keys(holds):presetCodes(gSel).slice(0,40)):
+    tab==="pick"?(lb?(lb[LBV]||lb.all).slice(0,40).map(x=>x.c):[]):
+    groups[0].codes.slice(0,8).concat(lb?lb.sig.slice(0,5).map(x=>x.c):[]);
   try{await loadRT(codes.concat(ovKind==="stock"?[ovArg]:[],alerts.filter(a=>a.on).map(a=>a.c),Object.keys(holds)))}catch(e){mark("rt",false)}
   rtBusy=false;rerender();
 }
@@ -920,7 +944,7 @@ async function refreshIntl(){await Promise.all([loadUS(),loadFutures()]);if(!ovK
 function schedule(){clearInterval(timer);timer=setInterval(()=>{
   if(document.hidden||!S.auto)return;
   if(tab==="intl"){if(isNightOpen()||isTrading()||iSel.startsWith("us"))refreshIntl();return}
-  if(isTrading()&&(tab==="watch"||tab==="home"||ovKind==="stock"||alerts.some(a=>a.on)))refreshRT();
+  if(isTrading()&&(tab==="watch"||tab==="home"||tab==="pick"||ovKind==="stock"||alerts.some(a=>a.on)))refreshRT();
   if(tab==="home"&&isNightOpen())loadFutures().then(()=>{if(tab==="home"&&!ovKind)render()});
 },S.int*1000)}
 async function boot(force){
@@ -931,7 +955,7 @@ async function boot(force){
     refreshIntl(),
     loadNews(force),
     loadMops(force),
-    loadLowbase(force).then(()=>{if(ovKind==="lowbase")renderOv();else if(ovKind==="stock")renderStock();else if(!ovKind&&(tab==="pick"||tab==="home"||(tab==="watch"&&gSel==="p:low")))render()}),
+    loadLowbase(force).then(()=>{if(tab==="pick"||tab==="home")refreshRT();if(ovKind==="lowbase")renderOv();else if(ovKind==="stock")renderStock();else if(!ovKind&&(tab==="pick"||tab==="home"||(tab==="watch"&&gSel==="p:low")))render()}),
     loadDaily(false).then(()=>Promise.all([loadFlows(force),loadInsti(force)])).then(rerender)
   ]);
   rerender();
