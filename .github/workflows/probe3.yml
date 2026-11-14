@@ -1,0 +1,30 @@
+name: probe3
+on:
+  push:
+    branches: [probe3]
+permissions:
+  contents: write
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          set +e
+          mkdir out && cd out
+          UA="Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36"
+          f(){ curl -sS -L -m 30 -A "$UA" "$2" -o raw.tmp -w "$1 %{http_code} %{size_download}\n" >> index.txt; head -c ${3:-1500} raw.tmp > "$1.txt"; rm -f raw.tmp; }
+          f twse_day "https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?date=20261101&stockNo=2330&response=json"
+          f tpex_day "https://www.tpex.org.tw/www/zh-tw/afterTrading/tradingStock?code=8069&date=2026/11/01&response=json"
+          f yahoo "https://query1.finance.yahoo.com/v8/finance/chart/2330.TW?range=6mo&interval=1d" 600
+          f t86 "https://www.twse.com.tw/rwd/zh/fund/T86?date=20261113&selectType=ALLBUT0999&response=json" 2500
+          f tpex_insti "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date=2026/11/13&response=json" 2500
+          f bfi82u "https://www.twse.com.tw/rwd/zh/fund/BFI82U?response=json" 2000
+          f tpex_3insti_sum "https://www.tpex.org.tw/www/zh-tw/insti/summary?date=2026/11/13&response=json" 2000
+          f margin_l "https://openapi.twse.com.tw/v1/exchangeReport/MI_MARGN" 1500
+          f margin_o "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_margin_balance" 1500
+          f twse_mi_margn_sum "https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=20261113&selectType=MS&response=json" 2000
+          f openapi_t86 "https://openapi.twse.com.tw/v1/fund/T86" 800
+          f tpex_openapi_insti "https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading" 1500
+          cat index.txt
+      - run: |
+          cd out && git init -q -b probe3-out && git add -A && git -c user.name=bot -c user.email=bot@x commit -qm s && git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" probe3-out
