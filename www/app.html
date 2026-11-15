@@ -49,7 +49,7 @@ button{font-family:inherit;color:inherit;background:none;border:0;padding:0}
 
 /* 底部 */
 nav{display:flex;background:var(--bar);padding:6px 0 calc(env(safe-area-inset-bottom) + 6px);flex:none}
-nav button{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:.78rem;color:#e6e6e6}
+nav button{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:.78rem;color:#e6e6e6;white-space:nowrap;overflow:hidden}
 nav button svg{width:25px;height:25px;stroke:currentColor;fill:none;stroke-width:1.6}
 nav button.on{color:var(--acc)}
 
@@ -169,7 +169,7 @@ nav button.pk svg{stroke:var(--acc)}
 .grid button{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 0 12px}
 .grid button:active{background:#15171b;border-radius:12px}
 .grid svg{width:58px;height:58px;filter:drop-shadow(0 2px 2px rgba(0,0,0,.6))}
-.grid span{font-size:1.02rem;color:#eee;letter-spacing:1px}
+.grid span{font-size:1.02rem;color:#eee;letter-spacing:1px;white-space:nowrap}
 .grid em{position:absolute;top:8px;left:calc(50% + 18px);min-width:22px;height:22px;padding:0 6px;border-radius:11px;background:#e8322a;color:#fff;font-style:normal;font-size:.78rem;font-weight:700;display:grid;place-items:center}
 .qr>div.lu,.qr>div.ld{align-self:stretch;display:flex;align-items:center;justify-content:flex-end}.qr>div.lu{background:#b30d0d;color:#fff}.qr>div.ld{background:#0f7a0f;color:#fff}
 body.swap .qr>div.lu{background:#0f7a0f}body.swap .qr>div.ld{background:#b30d0d}
@@ -226,7 +226,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=11; // 介面版本，要和 ota.json 一致
+const UI_V=13; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:20,fs:"m"},store.get("settings",{}));
 let groups=store.get("groups",null);
@@ -234,9 +234,12 @@ if(!groups){groups=[{name:"自選股",codes:store.get("watch",["2330","2317","24
 let gSel=store.get("gSel","g:0"),iSel=store.get("iSel","us"),sortSt={k:"",d:0};
 let daily={},info={},rt={},news=[],mops=[],idx={tse:null,otc:null},fut={day:[],night:[]},us=[],status=store.get("status",{});
 // 打開 App 先顯示上次的報價（標示為非即時），連上後馬上換成即時
-(()=>{const sn=store.get("rtSnap",null);if(sn&&Date.now()-sn.at<20*3600e3){for(const c in sn.rt)rt[c]=Object.assign(sn.rt[c],{stale:true});idx=sn.idx||idx}})();
+(()=>{const sn=store.get("rtSnap",null);if(sn&&Date.now()-sn.at<20*3600e3){for(const c in sn.rt)rt[c]=Object.assign(sn.rt[c],{stale:true});idx=sn.idx||idx}
+  const is=store.get("idxSnap",null);if(is){for(const k of ["tse","otc"])if(!idx[k]&&is[k])idx[k]=Object.assign(is[k],{stale:true})}})();
+// 加權指拿不到時，用期交所資料裡的加權指數現貨
+function tseIdx(){if(idx.tse&&isFinite(idx.tse.z))return idx.tse;const s=fut.day.find(x=>x.spot&&/^TXF/.test(x.id)&&isFinite(x.px));return s?{z:s.px,ch:s.ch,pct:s.pct,px:s.px}:null}
 const saveS=()=>store.set("settings",S),saveG=()=>store.set("groups",groups);
-function mark(k,ok){status[k]={t:nowStr(),ok};store.set("status",status)}
+function mark(k,ok,err){status[k]={t:nowStr(),ok,err:ok?"":String(err||"").slice(0,80)};store.set("status",status)}
 const curGroup=()=>{const m=/^g:(\d+)$/.exec(gSel);return m?groups[+m[1]]||groups[0]:null};
 const allWatch=()=>[...new Set(groups.flatMap(g=>g.codes))];
 
@@ -251,7 +254,7 @@ async function cached0(key,maxAgeH,loader,force){
   const c=store.get("c_"+key,null);
   if(!force&&c&&(Date.now()-c.at)<maxAgeH*3600e3)return c.v;
   try{const v=await loader();store.set("c_"+key,{at:Date.now(),v});mark(key,true);return v}
-  catch(e){mark(key,false);if(c)return c.v;throw e}
+  catch(e){mark(key,false,e&&e.message);if(c)return c.v;throw e}
 }
 async function loadDaily(force){
   daily=await cached("daily",4,async()=>{
@@ -296,11 +299,12 @@ const split=s=>String(s||"").split("_").filter(x=>x!=="").map(num);
 async function loadRT(codes){
   const list=[...new Set(codes)].filter(Boolean);
   // 不知道上市或上櫃的股票兩邊都查（只有一邊會有資料）
-  const keys=["tse_t00.tw","otc_o00.tw",...list.flatMap(c=>{const e=exOf(c);return e?[`${e}_${c}.tw`]:[`tse_${c}.tw`,`otc_${c}.tw`]})];
-  const batches=[];for(let i=0;i<keys.length;i+=40)batches.push(keys.slice(i,i+40));
+  const keys=list.flatMap(c=>{const e=exOf(c);return e?[`${e}_${c}.tw`]:[`tse_${c}.tw`,`otc_${c}.tw`]});
+  // 指數單獨一批，不會被其他股票的查詢錯誤拖累
+  const batches=[["tse_t00.tw","otc_o00.tw"]];for(let i=0;i<keys.length;i+=40)batches.push(keys.slice(i,i+40));
   // 所有批次同時送出，不再一批等一批
-  const res=await Promise.allSettled(batches.map(b=>getJSON("https://mis.twse.com.tw/stock/api/getStockInfo.jsp?json=1&delay=0&ex_ch="+encodeURIComponent(b.join("|"))+"&_="+Date.now(),6000)));
-  if(!res.some(r=>r.status==="fulfilled"))throw new Error("rt failed");
+  const res=await Promise.allSettled(batches.map(b=>getJSON("https://mis.twse.com.tw/stock/api/getStockInfo.jsp?json=1&delay=0&ex_ch="+encodeURIComponent(b.join("|"))+"&_="+Date.now(),10000)));
+  if(!res.some(r=>r.status==="fulfilled")){const r0=res.find(r=>r.status==="rejected");throw new Error("證交所即時報價連線失敗："+(r0&&r0.reason&&r0.reason.message||""))}
   let exNew=false;
   for(const rr of res){if(rr.status!=="fulfilled")continue;const j=rr.value;
     for(const m of j.msgArray||[]){
@@ -313,6 +317,7 @@ async function loadRT(codes){
     }
   }
   if(exNew)store.set("exMap",exMap);
+  if(idx.tse&&isFinite(idx.tse.z)&&!idx.tse.stale)store.set("idxSnap",idx);
   mark("rt",true);
   // 存一份快照，下次打開 App 立刻顯示
   store.set("rtSnap",{at:Date.now(),rt,idx});
@@ -648,7 +653,7 @@ const GDEF=`<defs><linearGradient id="gP" x1="0" y1="0" x2="0" y2="1"><stop offs
 const TILES=[["watch","自選報價"],["pick","低檔選股"],["index","指數行情"],["ind","類股報價"],["fut","台指期貨"],["intl","國際金融"],["holds","庫存損益"],["alerts","價格提醒"],["news","財經新聞"],["mops","重大訊息"],["newlist","新上市櫃"],["otchist","上櫃家數"],["settings","設定"],["status","資料狀態"],["upd","檢查更新"]];
 function renderHome(){
   setTB("股市智多星",{right:icBtn("tbSearch","search")+icBtn("tbRef","ref")});
-  const t=idx.tse,o=idx.otc,dn=fut.day.find(x=>!x.spot&&/^TXF/.test(x.id));
+  const t=tseIdx(),o=idx.otc,dn=fut.day.find(x=>!x.spot&&/^TXF/.test(x.id));
   const box=(n,q,d)=>{const k=q?cls(q.ch):"";return `<div data-tile="index"><span>${n}</span><b class="${k}">${q?F(q.z??q.px,d):"—"}</b><small class="${k}">${q&&isFinite(q.ch)?sg(q.ch)+F(q.ch,d)+"　"+F(Math.abs(q.pct),2)+"%":"&nbsp;"}</small></div>`};
   const sigN=lowbase?lbView().sig.length:0;
   let h=`<div class="mstrip">${box("加權指",t,2)+box("櫃買指",o,2)+box("台指近",dn,0)}</div>`;
@@ -669,7 +674,7 @@ function tileGo(k){
 }
 function renderMarket(){
   setTB("指數行情",{left:icBtn("tbHome","back"),right:icBtn("tbRef","ref")});
-  const t=idx.tse,o=idx.otc,dn=fut.day.find(x=>!x.spot&&/^TXF/.test(x.id)),nn=fut.night.find(x=>!x.spot&&/^TXF/.test(x.id)),mn=fut.day.find(x=>!x.spot&&/^MXF/.test(x.id));
+  const t=tseIdx(),o=idx.otc,dn=fut.day.find(x=>!x.spot&&/^TXF/.test(x.id)),nn=fut.night.find(x=>!x.spot&&/^TXF/.test(x.id)),mn=fut.day.find(x=>!x.spot&&/^MXF/.test(x.id));
   const ir=(n,q,d=2,attr="")=>q?row({n,px:q.z??q.px,ch:q.ch,pct:q.pct,d,cd:d,attr}):row({n,px:NaN,ch:NaN,pct:NaN,attr});
   let h="";
   if(false){const v=lbView(),top=v.sig.slice(0,5);
@@ -729,7 +734,7 @@ function renderWatch(){
   setTB(g?g.name:p?p[1]:gSel==="p:low"?"低檔盤整":"自選報價",{dd:"watch",left:icBtn("tbHome","back"),right:icBtn("tbRef","ref")+(g?icBtn("tbEdit","edit"):"")});
   const codes=g?g.codes:presetCodes(gSel);
   let h=head(true);
-  {const t=idx.tse,dn=fut.day.find(x=>!x.spot&&/^TXF/.test(x.id));
+  {const t=tseIdx(),dn=fut.day.find(x=>!x.spot&&/^TXF/.test(x.id));
    h+=(t?row({n:"加權指",px:t.z,ch:t.ch,pct:t.pct,d:2,attr:'data-tile="index"'}):"")+(dn?row({n:"台指近",px:dn.px,ch:dn.ch,pct:dn.pct,d:0,cd:0,attr:'data-intl="day"'}):"");}
   h+=sortCodes(codes).map(stockRow).join("")||`<div class="empty">${g?"這個群組還沒有股票<br><br>按右上角 ＋ 新增":"讀取中…"}</div>`;
   const live=codes.some(c=>rt[c]&&!rt[c].stale);
@@ -861,7 +866,7 @@ function renderOv(){
   }
   if(ovKind==="status"){
     T.innerHTML="資料狀態";const names={lowbase:"低檔盤整（每日計算）",insti:"三大法人（個股）",marginS:"融資融券（個股）",flows:"三大法人／信用交易（市場）",rt:"台股即時報價",fut:"期貨（日盤／夜盤）",us:"美股",daily:"台股收盤行情",info:"公司基本資料",news:"財經新聞",mops:"重大訊息"};
-    B.innerHTML=Object.entries(names).map(([k,n])=>{const s=status[k];return `<div class="li"><div class="l">${n}</div><div class="r">${s?(s.ok?"✅ ":"⚠️ ")+s.t:"尚未更新"}</div></div>`}).join("");return;
+    B.innerHTML=Object.entries(names).map(([k,n])=>{const s=status[k];return `<div class="li"><div class="l">${n}${s&&!s.ok&&s.err?`<small style="color:#ff9b7a">${esc(s.err)}</small>`:""}</div><div class="r">${s?(s.ok?"✅ ":"⚠️ ")+s.t:"尚未更新"}</div></div>`}).join("");return;
   }
 }
 function renderStock(){
@@ -941,7 +946,12 @@ function go(t){
   if(t==="watch"||t==="home"||t==="pick"||t==="market")refreshRT();if(t==="home"||t==="market")refreshIntl();if(t==="intl")refreshIntl();
 }
 $("nav").onclick=e=>{const b=e.target.closest("button");if(b)go(b.dataset.t)};
-function applyS(){document.body.classList.toggle("swap",!!S.swap);const R=document.documentElement;R.classList.remove("fs-xs","fs-s","fs-l");if(S.fs!=="m")R.classList.add("fs-"+S.fs)}
+// 手機系統字體放大時，App 的字也會被放大；量出放大倍數後抵銷，讓字體大小以 App 設定為準
+let fontK=1;
+function measureFontK(){try{const d=document.createElement("span");d.style.cssText="position:absolute;visibility:hidden;font-size:100px;line-height:1;white-space:nowrap";d.textContent="股股股股股股股股股股";document.body.appendChild(d);const w=d.getBoundingClientRect().width;d.remove();const k=w/1000;fontK=k>1.05&&k<4?k:1}catch(e){fontK=1}}
+function applyS(){document.body.classList.toggle("swap",!!S.swap);const R=document.documentElement;R.classList.remove("fs-xs","fs-s","fs-l");if(S.fs!=="m")R.classList.add("fs-"+S.fs);
+  R.style.fontSize="";R.style.removeProperty("--fs");measureFontK();
+  if(fontK>1){const cs=getComputedStyle(R),base=parseFloat(cs.fontSize),fs=parseFloat(cs.getPropertyValue("--fs"));R.style.fontSize=(base/fontK).toFixed(2)+"px";if(fs)R.style.setProperty("--fs",(fs/fontK).toFixed(2)+"px")}}
 document.addEventListener("click",e=>{
   const t=e.target;
   if(t.closest("#tbRef")){toast("更新中…");(tab==="intl"?refreshIntl():boot(true));return}
@@ -1001,13 +1011,15 @@ async function refreshRT(){
   const codes=tab==="watch"?(g?g.codes:gSel==="h:"?Object.keys(holds):presetCodes(gSel).slice(0,40)):
     tab==="pick"?(lb?(lb[LBV]||lb.all).slice(0,40).map(x=>x.c):[]):
     groups[0].codes.slice(0,8).concat(lb?lb.sig.slice(0,5).map(x=>x.c):[]);
-  try{await loadRT(codes.concat(ovKind==="stock"?[ovArg]:[],alerts.filter(a=>a.on).map(a=>a.c),Object.keys(holds)))}catch(e){mark("rt",false)}
+  const all=codes.concat(ovKind==="stock"?[ovArg]:[],alerts.filter(a=>a.on).map(a=>a.c),Object.keys(holds));
+  try{await loadRT(all)}catch(e){await sleep(1500);try{await loadRT(all)}catch(e2){mark("rt",false,e2&&e2.message)}}
   rtBusy=false;rerender();
 }
 async function refreshIntl(){await Promise.all([loadUS(),loadFutures()]);if(!ovKind&&(tab==="intl"||tab==="home"||tab==="market"||tab==="watch"))render()}
 function schedule(){clearInterval(timer);timer=setInterval(()=>{
   if(document.hidden||!S.auto)return;
   if(tab==="intl"){if(isNightOpen()||isTrading()||iSel.startsWith("us"))refreshIntl();return}
+  if(!isTrading()&&!(idx.tse&&!idx.tse.stale)&&(tab==="home"||tab==="watch"||tab==="market")&&Date.now()-(window._idxTry||0)>60000){window._idxTry=Date.now();refreshRT()}
   if(isTrading()&&(tab==="watch"||tab==="home"||tab==="market"||tab==="pick"||ovKind==="stock"||alerts.some(a=>a.on)))refreshRT();
   if(tab==="home"&&isNightOpen())loadFutures().then(()=>{if(tab==="home"&&!ovKind)render()});
 },S.int*1000)}
