@@ -158,7 +158,7 @@ function rec(name, ok, detail = "") { steps.push({ name, ok, detail }); console.
     await home();
   });
 
-  for (const [k, n, sel, min] of [["ind", "類股報價", "#ovBody [data-indsel]", 10], ["news", "財經新聞", "#ovBody .news", 5], ["mops", "重大訊息", "#ovBody .news", 5], ["newlist", "新上市櫃", "#ovBody .li, #ovBody .qr", 1], ["otchist", "上櫃家數", "#ovBody .li, #ovBody .qr, #ovBody div", 1], ["settings", "設定", "#ovBody .li", 3]]) {
+  for (const [k, n, sel, min] of [["ind", "類股報價", "#ovBody [data-indsel]", 10], ["news", "財經新聞", "#ovBody .news", 5], ["mops", "重大訊息", "#ovBody .news", 5], ["newlist", "新上市櫃", "#ovBody .ed", 10], ["otchist", "上櫃家數", "#ovBody .li, #ovBody .qr, #ovBody div", 1], ["settings", "設定", "#ovBody .li", 3]]) {
     await step(n, async () => {
       await p.click(`.grid [data-tile=${k}]`); await wait(3500);
       const c = await count(sel); rec(n, c >= min, c + " 筆");
