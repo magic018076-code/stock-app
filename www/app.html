@@ -98,6 +98,8 @@ input[type=search],input[type=text]{flex:1;background:#1b1d22;border:1px solid #
 .ktab button.on{color:var(--acc);border-color:var(--acc)}
 .kleg{display:flex;gap:10px;flex-wrap:wrap;padding:6px 10px 0;font-size:.74rem;font-variant-numeric:tabular-nums;min-height:22px}
 #kc{display:block;width:100%;touch-action:pan-y}
+.kma{display:flex;gap:5px;padding:6px 10px 0;overflow-x:auto;scrollbar-width:none}
+.kma button{border:1px solid #444;border-radius:12px;padding:2px 9px;font-size:.74rem;color:#888;flex:none;white-space:nowrap}
 .kzoom{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--line)}
 .kzoom button{border:1px solid #444;border-radius:6px;padding:5px 9px;font-size:.8rem;color:#ddd;flex:none}
 .kzoom span{flex:1;text-align:center;font-size:.74rem;color:var(--mute);white-space:nowrap}
@@ -259,7 +261,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=22; // 介面版本，要和 ota.json 一致
+const UI_V=23; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:10,fs:"m"},store.get("settings",{}));
 if(S.int===20&&!S.intSet)S.int=10; // 舊預設 20 秒改成 10 秒（使用者自己選過的不動）
@@ -567,6 +569,11 @@ $("alertOk").onclick=()=>$("alertBox").classList.remove("on");
 let kMode=store.get("kMode","d"),kSel=-1;
 const KN={d:[6,90],w:[14,60],m:[30,30]};
 let kView={n:0,off:0},kFull=false;
+// 均線：日 K 用台股慣用名稱（週線、月線、季線、半年線、年線）
+const MAS=[[5,"週線","#f5c542"],[10,"雙週線","#ff8a3d"],[20,"月線","#c77dff"],[60,"季線","#3ba7ff"],[120,"半年線","#2fd0c0"],[240,"年線","#ff5c8a"]];
+let kMA=store.get("kMA",[5,20,60]);
+const maName=(n,nm)=>kMode==="d"?nm:"MA"+n;
+const maBtns=()=>MAS.map(([n,nm,col])=>`<button data-kma="${n}" class="${kMA.includes(n)?"on":""}" style="${kMA.includes(n)?`border-color:${col};color:${col}`:""}">${maName(n,nm)}</button>`).join("");
 const kDefN=()=>KN[kMode][1];
 function kWin(all){const N=all.length;if(N<2)return {s:0,e:N};let n=Math.max(15,Math.min(kView.n||kDefN(),N));if(kView.n)kView.n=n;kView.off=Math.max(0,Math.min(kView.off,N-n));const e=N-kView.off;return {s:Math.max(0,e-n),e}}
 function kChartSVG(all,s,e,band){
@@ -576,7 +583,7 @@ function kChartSVG(all,s,e,band){
   const cw=(W-PADR)/n,vmax=Math.max(...bars.map(b=>b[5]))||1;
   let lo=Math.min(...bars.map(b=>b[3])),hi=Math.max(...bars.map(b=>b[2]));
   // 均線也要在畫面內
-  for(const nn of [5,20,60])for(let i=0;i<n;i++){const v=ma(all,nn,s+i);if(isFinite(v)){lo=Math.min(lo,v);hi=Math.max(hi,v)}}
+  for(const nn of kMA)for(let i=0;i<n;i++){const v=ma(all,nn,s+i);if(isFinite(v)){lo=Math.min(lo,v);hi=Math.max(hi,v)}}
   // 盤整區間跟畫面上的價格有重疊才畫，避免把 K 線壓扁
   if(band&&band.hi>band.lo){const pad=(hi-lo)*0.3;if(all.length-band.n>=e||band.lo>hi+pad||band.hi<lo-pad)band=null;else{lo=Math.min(lo,band.lo);hi=Math.max(hi,band.hi)}}
   const y=v=>8+(hi-v)/((hi-lo)||1)*(H-16),vy=v=>H+VH-(v/vmax)*(VH-6);
@@ -584,7 +591,7 @@ function kChartSVG(all,s,e,band){
   if(band&&band.hi>band.lo){const x0=Math.max(0,all.length-band.n-s)*cw;g+=`<rect x="${x0}" y="${y(band.hi)}" width="${Math.max(0,W-PADR-x0)}" height="${y(band.lo)-y(band.hi)}" fill="#ffb020" opacity=".09"/><line x1="${x0}" x2="${W-PADR}" y1="${y(band.hi)}" y2="${y(band.hi)}" stroke="#ffb020" stroke-dasharray="4 3" opacity=".8"/><line x1="${x0}" x2="${W-PADR}" y1="${y(band.lo)}" y2="${y(band.lo)}" stroke="#ffb020" stroke-dasharray="4 3" opacity=".5"/><text x="${x0+3}" y="${y(band.hi)+12}" fill="#ffb020" font-size="10">盤整上緣 ${F(band.hi,band.hi>=1000?0:2)}</text>`}
   for(let i=0;i<n;i++){const b=bars[i],x=i*cw+cw/2,up=b[4]>=b[1],col=up?"var(--up)":"var(--down)",bw=Math.max(1,cw*0.7);
     g+=`<line x1="${x}" x2="${x}" y1="${y(b[2])}" y2="${y(b[3])}" stroke="${col}" stroke-width="1"/><rect x="${x-bw/2}" y="${Math.min(y(b[1]),y(b[4]))}" width="${bw}" height="${Math.max(1,Math.abs(y(b[1])-y(b[4])))}" fill="${col}"/><rect x="${x-bw/2}" y="${vy(b[5])}" width="${bw}" height="${H+VH-vy(b[5])}" fill="${col}" opacity=".7"/>`}
-  for(const [nn,col] of [[5,"#f5c542"],[20,"#c77dff"],[60,"#3ba7ff"]]){let d="";for(let i=0;i<n;i++){const v=ma(all,nn,s+i);if(isFinite(v))d+=(d?"L":"M")+(i*cw+cw/2).toFixed(1)+","+y(v).toFixed(1)}if(d)g+=`<path d="${d}" fill="none" stroke="${col}" stroke-width="1.2"/>`}
+  for(const [nn,,col] of MAS.filter(m=>kMA.includes(m[0]))){let d="";for(let i=0;i<n;i++){const v=ma(all,nn,s+i);if(isFinite(v))d+=(d?"L":"M")+(i*cw+cw/2).toFixed(1)+","+y(v).toFixed(1)}if(d)g+=`<path d="${d}" fill="none" stroke="${col}" stroke-width="1.2"/>`}
   const lbl=(v,yy)=>`<text x="${W-4}" y="${yy}" fill="#9aa0a8" font-size="11" text-anchor="end">${F(v,v>=1000?0:2)}</text>`;
   g+=`<line x1="0" x2="${W-PADR}" y1="${H}" y2="${H}" stroke="#333"/>`+lbl(hi,16)+lbl((hi+lo)/2,H/2+4)+lbl(lo,H-4)+`<text x="${W-4}" y="${H+14}" fill="#9aa0a8" font-size="10" text-anchor="end">${fmtBig(vmax)}張</text>`;
   const dl=i=>`<text x="${Math.min(Math.max(i*cw+cw/2,22),W-PADR-22)}" y="${H+VH+14}" fill="#9aa0a8" font-size="10" text-anchor="middle">${bars[i][0].slice(kMode==="m"?0:2).replace(/-/g,"/")}</text>`;
@@ -594,7 +601,7 @@ function kChartSVG(all,s,e,band){
 }
 function kLegend(bars,i){
   if(!bars.length)return"";if(i<0||i>=bars.length)i=bars.length-1;const b=bars[i],p=i>0?bars[i-1][4]:b[1],c=cls(b[4]-p);
-  return `<span class="mute">${b[0]}</span><span>開<b class="${cls(b[1]-p)}">${F(b[1],2)}</b></span><span>高<b class="${cls(b[2]-p)}">${F(b[2],2)}</b></span><span>低<b class="${cls(b[3]-p)}">${F(b[3],2)}</b></span><span>收<b class="${c}">${F(b[4],2)}</b></span><span>量 ${fmtC(b[5],0)}</span><span style="color:#f5c542">MA5 ${F(ma(bars,5,i),2)}</span><span style="color:#c77dff">MA20 ${F(ma(bars,20,i),2)}</span><span style="color:#3ba7ff">MA60 ${F(ma(bars,60,i),2)}</span>`;
+  return `<span class="mute">${b[0]}</span><span>開<b class="${cls(b[1]-p)}">${F(b[1],2)}</b></span><span>高<b class="${cls(b[2]-p)}">${F(b[2],2)}</b></span><span>低<b class="${cls(b[3]-p)}">${F(b[3],2)}</b></span><span>收<b class="${c}">${F(b[4],2)}</b></span><span>量 ${fmtC(b[5],0)}</span>${MAS.filter(m=>kMA.includes(m[0])).map(([n,nm,col])=>{const v=ma(bars,n,i);return `<span style="color:${col}">${maName(n,nm)} ${isFinite(v)?F(v,2):"—"}${isFinite(v)?(b[4]>=v?"↑":"↓"):""}</span>`}).join("")}`;
 }
 /* K 線檔：GitHub 每天收盤後算好（日／週／月 K），一次下載；盤中再接上即時價 */
 const KF_URL="https://raw.githubusercontent.com/magic018076-code/stock-app/data/k/";
@@ -980,7 +987,7 @@ function renderStock(){
   const m=mops.filter(x=>x.c===c).slice(0,10),nn=news.filter(n=>(n.st||[]).includes(c)||n.t.includes(q.n)).slice(0,10);
   $("ovBody").innerHTML=`<div class="big"><div class="mute" style="font-size:.85rem">${inf?esc(inf[0])+"・"+esc(inf[1]):""}${q.live?"・即時 "+esc(q.t||""):"・收盤 "+(daily.date||"")}</div><div style="display:flex;align-items:flex-end;gap:14px"><div class="px ${k}">${F(q.px,pxD(q.px))}</div><div class="ch ${k}" style="padding-bottom:6px">${isFinite(q.ch)?(q.ch>0?"▲":q.ch<0?"▼":"")+F(Math.abs(q.ch),2):""}　${isFinite(q.pct)?F(Math.abs(q.pct),2)+"%":""}</div></div></div>
    <div class="ktab" id="ktab">${[["d","日K"],["w","週K"],["m","月K"]].map(([k,t])=>`<button data-k="${k}" class="${kMode===k?"on":""}">${t}</button>`).join("")}</div>
-   <div id="kwrap"><div class="kfbar"><b>${esc(q.n)} ${c}</b><button data-kf="0">✕ 關閉全螢幕</button></div><div class="kleg" id="kleg"></div><div id="kbox"></div><div class="kzoom" id="kzoom"><button data-kz="1.5">－ 縮小</button><button data-kz="0.67">＋ 放大</button><button data-kp="0.5">◀</button><span></span><button data-kp="-0.5">▶</button><button data-kf="1">⛶ 全螢幕</button></div></div>
+   <div id="kwrap"><div class="kfbar"><b>${esc(q.n)} ${c}</b><button data-kf="0">✕ 關閉全螢幕</button></div><div class="kma" id="kma">${maBtns()}</div><div class="kleg" id="kleg"></div><div id="kbox"></div><div class="kzoom" id="kzoom"><button data-kz="1.5">－ 縮小</button><button data-kz="0.67">＋ 放大</button><button data-kp="0.5">◀</button><span></span><button data-kp="-0.5">▶</button><button data-kf="1">⛶ 全螢幕</button></div></div>
    ${lbStockHTML(c)}
    ${five}
    <div class="sec"><span>今日行情</span></div>
@@ -1076,10 +1083,11 @@ document.addEventListener("click",e=>{
   const lv=t.closest("[data-lbv]");if(lv){LBV=lv.dataset.lbv;store.set("lbV",LBV);const sc=$("main").scrollTop;render();$("main").scrollTop=Math.min(sc,0);return}
   const lg=t.closest("[data-lbgo]");if(lg){LBV=lg.dataset.lbgo;store.set("lbV",LBV);go("pick");return}
   if(t.closest("#tbAdd")){go("add");return}
+  const km=t.closest("[data-kma]");if(km){const n=+km.dataset.kma;kMA=kMA.includes(n)?kMA.filter(x=>x!==n):[...kMA,n].sort((a,b)=>a-b);store.set("kMA",kMA);$("kma").innerHTML=maBtns();drawK();return}
   const kz=t.closest("[data-kz]");if(kz){kZoom(+kz.dataset.kz);return}
   const kp=t.closest("[data-kp]");if(kp){kPan(+kp.dataset.kp);return}
   const kf=t.closest("[data-kf]");if(kf){kSetFull(kf.dataset.kf==="1");return}
-  const kb=t.closest("[data-k]");if(kb){kView={n:0,off:0};kMode=kb.dataset.k;store.set("kMode",kMode);document.querySelectorAll("#ktab button").forEach(b=>b.classList.toggle("on",b.dataset.k===kMode));drawK();ensureHist(ovArg);return}
+  const kb=t.closest("[data-k]");if(kb){kView={n:0,off:0};kMode=kb.dataset.k;store.set("kMode",kMode);document.querySelectorAll("#ktab button").forEach(b=>b.classList.toggle("on",b.dataset.k===kMode));if($("kma"))$("kma").innerHTML=maBtns();drawK();ensureHist(ovArg);return}
   const ad=t.closest("[data-adel]");if(ad){alerts.splice(+ad.dataset.adel,1);saveA();ovKind==="stock"?renderStock():renderOv();return}
   const u=t.closest("[data-url]");if(u){openUrl(u.dataset.url);return}
   const op=t.closest("[data-open]");if(op){op.classList.toggle("open");return}
