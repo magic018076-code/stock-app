@@ -83,7 +83,7 @@ function rec(name, ok, detail = "") { steps.push({ name, ok, detail }); console.
   });
 
   await step("自選報價", async () => {
-    await p.click("nav button[data-t=watch]"); await wait(4000);
+    await p.click(".grid [data-tile=watch]"); await wait(4000);
     const rows = await p.$$eval(".qr", e => e.map(x => x.innerText.replace(/\s+/g, " ")));
     rec("自選報價：報價", rows.length >= 4 && rows.every(r => !/—\s*—\s*—/.test(r)), rows.slice(0, 6).join("｜"));
     rec("自選報價：資料時間", true, (await txt(".foot")).split("\n")[0]);
