@@ -229,7 +229,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=17; // 介面版本，要和 ota.json 一致
+const UI_V=18; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:10,fs:"m"},store.get("settings",{}));
 if(S.int===20&&!S.intSet)S.int=10; // 舊預設 20 秒改成 10 秒（使用者自己選過的不動）
@@ -1087,7 +1087,15 @@ try{const ks=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(
 applyS();render();boot(false);schedule();getMyVer().then(()=>{if(tab==="more")render()});setTimeout(()=>checkUpdate(false),2500);
 /* ===== 介面自動更新（由 index.html 載入器負責下載） ===== */
 window.__appOK=true;store.del("ota_booting");
-function otaReady(v){$("updText").textContent="介面已更新到新版，點「套用」立即使用";$("updGo").textContent="套用";$("updGo").onclick=()=>location.replace("index.html");$("updBar").classList.add("on")}
+// 新介面下載好後自動套用：在首頁沒打字時馬上換；否則等下次切回 App 時換
+let otaPending=false;
+function otaApply(){store.set("otaJust",1);location.replace("index.html")}
+function otaIdle(){const ae=document.activeElement;return !(ae&&ae.tagName==="INPUT")&&!ovKind&&!$("mask").classList.contains("on")}
+function otaReady(v){otaPending=true;
+  $("updText").textContent="介面有新版，即將自動套用";$("updGo").textContent="立即套用";$("updGo").onclick=otaApply;$("updBar").classList.add("on");
+  setTimeout(()=>{if(otaIdle())otaApply()},4000)}
+document.addEventListener("visibilitychange",()=>{if(document.hidden&&otaPending)otaApply()});
+if(store.get("otaJust",0)){store.del("otaJust");setTimeout(()=>toast("已自動更新到新版介面 v"+(window.__OTA_V||UI_V)),800)}
 window.__onOtaReady=otaReady;if(window.__otaReady)otaReady(window.__otaReady);
 </script>
 </body>
