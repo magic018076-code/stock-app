@@ -1,0 +1,17 @@
+name: 檢查網站憑證
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 檢查各資料來源的憑證鏈（不自動補中繼憑證，模擬 Android App）
+        run: |
+          for h in mis.twse.com.tw openapi.twse.com.tw www.twse.com.tw www.tpex.org.tw mis.taifex.com.tw api.cnyes.com quote.cnbc.com raw.githubusercontent.com; do
+            echo "=== $h"
+            out=$(echo | timeout 20 openssl s_client -connect $h:443 -servername $h -showcerts 2>&1)
+            echo "$out" | grep -E "^ *[0-9] s:|^ *i:|Verify return code" | head -12
+            echo "$out" | awk '/BEGIN CERT/{n++} END{print "  伺服器送出的憑證數: " n}'
+          done
