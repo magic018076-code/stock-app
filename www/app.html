@@ -98,6 +98,7 @@ input[type=search],input[type=text]{flex:1;background:#1b1d22;border:1px solid #
 .ktab button.on{color:var(--acc);border-color:var(--acc)}
 .kleg{display:flex;gap:10px;flex-wrap:wrap;padding:6px 10px 0;font-size:.74rem;font-variant-numeric:tabular-nums;min-height:22px}
 #kc{display:block;width:100%;touch-action:pan-y}
+.rvc{display:flex;align-items:flex-end;gap:3px;height:80px;padding:8px 12px 0}.rvc div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}.rvc i{display:block;width:100%;border-radius:2px 2px 0 0;opacity:.85}.rvc small{font-size:.62rem;color:var(--mute);margin-top:2px}
 .kma{display:flex;gap:5px;padding:6px 10px 0;overflow-x:auto;scrollbar-width:none}
 .kma button{border:1px solid #444;border-radius:12px;padding:2px 9px;font-size:.74rem;color:#888;flex:none;white-space:nowrap}
 .kzoom{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--line)}
@@ -261,7 +262,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=23; // 介面版本，要和 ota.json 一致
+const UI_V=24; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:10,fs:"m"},store.get("settings",{}));
 if(S.int===20&&!S.intSet)S.int=10; // 舊預設 20 秒改成 10 秒（使用者自己選過的不動）
@@ -473,6 +474,10 @@ async function loadFlows(force){
 
 /* ===== 低檔盤整（GitHub 每天收盤後算好，App 下載結果） ===== */
 const LB_URL="https://raw.githubusercontent.com/magic018076-code/stock-app/data/lowbase.json";
+// 基本面與籌碼（GitHub 每天收盤後算好）：本益比、殖利率、淨值比、月營收、法人近 5／20 日與連買賣天數
+let fund={s:{}};
+async function loadFund(force){fund=await cached("fund",4,async()=>{const j=await getJSON(LB_URL.replace("lowbase.json","fund.json")+"?t="+Math.floor(Date.now()/600000));if(!j.s)throw new Error("bad");return j},force).catch(()=>fund)}
+const fd=c=>(fund.s&&fund.s[c])||{};
 let lowbase=null;
 let LBF=Object.assign({per:63,amp:20,pos:33,dd:20,vol:100,mkt:"",sort:"sig",cat:""},store.get("lbF",{}));
 // 產業分類：科技股（電子相關）、金融股、其餘為傳產股
@@ -485,7 +490,7 @@ async function loadLowbase(force){
 }
 function lbList(f=LBF){
   if(!lowbase)return [];
-  let a=lowbase.items.filter(x=>(x.len[String(f.amp)]||0)>=f.per&&(f.pos>=100||x.pos<=f.pos)&&(!f.dd||x.dd<=-f.dd)&&!/^00/.test(x.c)&&x.v20>=f.vol&&(!f.mkt||x.m===f.mkt)&&(!f.cat||catOf(x)===f.cat));
+  let a=lowbase.items.filter(x=>(x.len[String(f.amp)]||0)>=f.per&&(f.pos>=100||x.pos<=f.pos)&&(!f.dd||x.dd<=-f.dd)&&!/^00/.test(x.c)&&x.v20>=f.vol&&(!f.mkt||x.m===f.mkt)&&(!f.cat||catOf(x)===f.cat)&&fxOK(x,f.fx));
   const k={sig:(x,y)=>(lbSig(y).s-lbSig(x).s)||(y.len[f.amp]-x.len[f.amp]),len:(x,y)=>y.len[f.amp]-x.len[f.amp],amp:(x,y)=>(x.bhi/x.blo)-(y.bhi/y.blo),pos:(x,y)=>x.pos-y.pos,bo:(x,y)=>(y.bo-x.bo)||(y.len[f.amp]-x.len[f.amp]),vol:(x,y)=>(x.v20/x.v120)-(y.v20/y.v120)}[f.sort]||((x,y)=>y.len[f.amp]-x.len[f.amp]);
   return a.sort(k);
 }
@@ -500,6 +505,9 @@ function lbSig(x){
   if(x.v120&&x.v20>=x.v120*1.3){t.push(["量能回溫","hot"]);s+=1}
   else if(x.v120&&x.v20<x.v120*0.6)t.push(["量縮整理",""]);
   if(x.gap<=2){t.push(["均線糾結","blu"]);s+=1}
+  if(x.ts>=3){t.push(["投信連買"+x.ts+"天","hot"]);s+=1}
+  if(x.fs>=5){t.push(["外資連買"+x.fs+"天","hot"]);s+=1}
+  if(x.rvy>=20){t.push(["營收年增"+Math.round(x.rvy)+"%","acc"]);s+=1}
   if(x.pos<=10)t.push(["一年最低區",""]);
   return x._sig={s,t};
 }
@@ -513,6 +521,7 @@ function lbCard(x,amp=LBF.amp){
   return `<div class="lc" data-code="${x.c}"><div class="r1"><b>${esc(x.n)}</b><span class="cd">${x.c}${x.m==="O"?" 櫃":""}${indOf(x)?" ・"+esc(indOf(x)):""}</span>${stars(sg.s)}<span class="px ${k}">${F(px,pxD(px))}</span><span class="pc ${k}">${ch>0?"+":""}${F(ch,2)}%</span></div>
    <div class="r2"><span>盤整 <em>${mon(x.len[amp]||0)}</em></span><span>一年位置 <em>${F(x.pos,0)}%</em></span><span>距高點 ${F(x.dd,0)}%</span></div>
    <div class="rng"><i style="left:${p}%"></i></div><div class="rngl"><span>區間低 ${d(x.blo)}</span><span>現價在區間 ${F(p,0)}%</span><span>區間高 ${d(x.bhi)}</span></div>
+   ${fundLine(x)}
    ${sg.t.length?`<div class="tags">${sg.t.map(([n,c])=>`<span class="tg ${c}">${n}</span>`).join("")}</div>`:""}</div>`;
 }
 const LBM=[
@@ -522,8 +531,11 @@ const LBM=[
  ["dd","距一年高點",[[20,"跌≥20%"],[30,"跌≥30%"],[0,"不限"]]],
  ["vol","日均量",[[100,"≥100張"],[500,"≥500張"],[0,"不限"]]],
  ["mkt","市場",[["","全部"],["L","上市"],["O","上櫃"]]],
+ ["fx","基本面",[["","不限"],["dy4","殖利率≥4%"],["pe15","本益比≤15"],["pb1","淨值比≤1"],["rv0","營收年增>0"],["rv20","營收年增≥20%"],["t3","投信連買≥3天"],["f5","外資連買≥5天"]]],
  ["sort","排序",[["sig","訊號最強"],["len","盤整最久"],["amp","區間最窄"],["pos","位置最低"],["vol","量縮最多"]]]];
-const LBSHORT={per:"盤整",amp:"振幅",pos:"位置",dd:"距高點",vol:"均量",mkt:"市場",sort:"排序"};
+const LBSHORT={per:"盤整",amp:"振幅",pos:"位置",dd:"距高點",vol:"均量",mkt:"市場",fx:"基本面",sort:"排序"};
+function fxOK(x,k){switch(k||""){case "dy4":return x.dy>=4;case "pe15":return x.pe>0&&x.pe<=15;case "pb1":return x.pb>0&&x.pb<=1;case "rv0":return x.rvy>0;case "rv20":return x.rvy>=20;case "t3":return x.ts>=3;case "f5":return x.fs>=5;default:return true}}
+function fundLine(x){const a=[];if(x.pe>0)a.push("本益比 "+F(x.pe,1));if(x.dy>0)a.push("殖利率 "+F(x.dy,1)+"%");if(x.pb>0)a.push("淨值比 "+F(x.pb,2));if(typeof x.rvy==="number")a.push(`營收年增 <b class="${cls(x.rvy)}">${x.rvy>0?"+":""}${F(x.rvy,0)}%</b>`);return a.length?`<div class="r2" style="margin-top:4px;flex-wrap:wrap">${a.map(z=>"<span>"+z+"</span>").join("")}</div>`:""}
 function lbMenuBar(){
   return `<div class="fbar">${LBM.map(([k,t,os])=>{const o=os.find(x=>String(x[0])===String(LBF[k]))||os[0];return `<button data-lbm="${k}"><span>${LBSHORT[k]}</span><b>${o[1].replace(" 以內","")}</b><i>▾</i></button>`}).join("")}<button data-lbreset="1" class="rs"><b>重設</b></button></div>`;
 }
@@ -612,7 +624,7 @@ async function loadKFile(c){
   const key="kf_"+c,hit=store.get(key,null),stamp=lowbase&&lowbase.date||today();
   if(hit&&hit.s===stamp){kfMem[c]=hit.v;return hit.v}
   const j=await getJSON(KF_URL+c+".json?s="+stamp,12000);
-  const v={d:j.d.map(b=>[kd(b[0]),...b.slice(1)]),w:j.w.map(b=>[kd(b[0]),...b.slice(1)]),m:j.m.map(b=>[kd(b[0]),...b.slice(1)])};
+  const v={d:j.d.map(b=>[kd(b[0]),...b.slice(1)]),w:j.w.map(b=>[kd(b[0]),...b.slice(1)]),m:j.m.map(b=>[kd(b[0]),...b.slice(1)]),y0:j.y0||0,rv:j.rv||[]};
   kfMem[c]=v;store.set(key,{s:stamp,v});
   // 手機只保留最近看過的 30 檔，避免存太多
   const ix=store.get("kfIdx",[]).filter(x=>x!==c);ix.push(c);while(ix.length>30)store.del("kf_"+ix.shift());store.set("kfIdx",ix);
@@ -637,13 +649,23 @@ function kBars(c){
 let kLoading={};
 async function ensureHist(c){
   if(kfMem[c])return drawK();
-  if(kLoading["f_"+c]!==2){kLoading["f_"+c]=1;try{await loadKFile(c);if(ovKind==="stock"&&ovArg===c)drawK();return}catch(e){kLoading["f_"+c]=2}}
+  if(kLoading["f_"+c]!==2){kLoading["f_"+c]=1;try{await loadKFile(c);if(ovKind==="stock"&&ovArg===c)renderStock();return}catch(e){kLoading["f_"+c]=2}}
   const need=KN[kMode][0],key=c+"_"+need;if(kLoading[key])return;kLoading[key]=1;
   const h=await loadHist(c,need,part=>{histMem[c]=part;if(ovKind==="stock"&&ovArg===c)drawK()});
   histMem[c]=h;if(ovKind==="stock"&&ovArg===c)drawK();
 }
 function kBand(c){const x=lbItem(c);if(!x||!x.bhi)return null;const L=x.len["20"]||0;return {hi:x.bhi,lo:x.blo,n:kMode==="d"?L:kMode==="w"?Math.ceil(L/5):Math.ceil(L/21)}}
-function drawK(){const el=$("kwrap");if(!el)return;const all=kBars(ovArg),w=kWin(all);$("kbox").innerHTML=kChartSVG(all,w.s,w.e,kBand(ovArg));$("kleg").innerHTML=kLegend(all,w.e-1);
+// 日 K 往前拉到最早一天時，下載更早一年的日 K（最多到 10 年前）
+async function loadOlder(c){
+  const f=kfMem[c];if(!f||f._busy||!f.d.length)return;if(f._next===undefined)f._next=+f.d[0][0].slice(0,4);const target=f._next;
+  if(!f.y0||target<f.y0)return;f._busy=1;f._next=target-1;
+  try{const j=await getJSON(KF_URL.replace(/\/k\/$/,"/kd/")+c+"/"+target+".json?s="+(lowbase&&lowbase.date||today()),12000);
+    const mp={};for(const b of j)mp[kd(b[0])]=[kd(b[0]),...b.slice(1)];for(const b of f.d)mp[b[0]]=b;
+    const add=Object.keys(mp).length-f.d.length;f.d=Object.values(mp).sort((a,b)=>a[0].localeCompare(b[0]));kView.off+=0;if(add>0&&ovKind==="stock"&&ovArg===c)drawK()}
+  catch(e){f._next=target}finally{f._busy=0}
+}
+function drawK(){const el=$("kwrap");if(!el)return;const all=kBars(ovArg),w=kWin(all);
+  if(kMode==="d"&&kfMem[ovArg]&&(kView.n||kView.off)&&w.s<=5)loadOlder(ovArg);$("kbox").innerHTML=kChartSVG(all,w.s,w.e,kBand(ovArg));$("kleg").innerHTML=kLegend(all,w.e-1);
   const kz=$("kzoom");if(kz)kz.querySelector("span").textContent=`${w.e-w.s} 根${kView.off?"・往前 "+kView.off:""}`}
 // 放大縮小、往前往後、全螢幕
 function kZoom(f){const all=kBars(ovArg);kView.n=Math.round(Math.min(kView.n||kDefN(),all.length)*f);if(kView.n>=all.length)kView.off=0;drawK()}
@@ -733,7 +755,7 @@ function openSheet(kind){
   }
   $("sheet").innerHTML=h;$("sheet").dataset.kind=kind;$("mask").classList.add("on");
 }
-$("mask").onclick=e=>{const b=e.target.closest("[data-sel]");if(b){const k=$("sheet").dataset.kind;if(k.startsWith("lb:")){const f=k.slice(3),v=b.dataset.sel;LBF[f]=["mkt","sort"].includes(f)?v:+v;store.set("lbF",LBF);$("mask").classList.remove("on");render();return}if(k==="watch"){gSel=b.dataset.sel;store.set("gSel",gSel);sortSt={k:"",d:0}}else{iSel=b.dataset.sel;store.set("iSel",iSel)}render();if(k==="watch")refreshRT();if(k==="intl")refreshIntl()}$("mask").classList.remove("on")};
+$("mask").onclick=e=>{const b=e.target.closest("[data-sel]");if(b){const k=$("sheet").dataset.kind;if(k.startsWith("lb:")){const f=k.slice(3),v=b.dataset.sel;LBF[f]=["mkt","sort","fx","cat"].includes(f)?v:+v;store.set("lbF",LBF);$("mask").classList.remove("on");render();return}if(k==="watch"){gSel=b.dataset.sel;store.set("gSel",gSel);sortSt={k:"",d:0}}else{iSel=b.dataset.sel;store.set("iSel",iSel)}render();if(k==="watch")refreshRT();if(k==="intl")refreshIntl()}$("mask").classList.remove("on")};
 
 /* ===== 首頁 ===== */
 /* ===== 首頁功能選單（大圖示） ===== */
@@ -989,6 +1011,7 @@ function renderStock(){
    <div class="ktab" id="ktab">${[["d","日K"],["w","週K"],["m","月K"]].map(([k,t])=>`<button data-k="${k}" class="${kMode===k?"on":""}">${t}</button>`).join("")}</div>
    <div id="kwrap"><div class="kfbar"><b>${esc(q.n)} ${c}</b><button data-kf="0">✕ 關閉全螢幕</button></div><div class="kma" id="kma">${maBtns()}</div><div class="kleg" id="kleg"></div><div id="kbox"></div><div class="kzoom" id="kzoom"><button data-kz="1.5">－ 縮小</button><button data-kz="0.67">＋ 放大</button><button data-kp="0.5">◀</button><span></span><button data-kp="-0.5">▶</button><button data-kf="1">⛶ 全螢幕</button></div></div>
    ${lbStockHTML(c)}
+   ${fundHTML(c)}
    ${five}
    <div class="sec"><span>今日行情</span></div>
    <div class="kv"><div><span>開盤</span><b class="${cls(q.o-q.y)}">${F(q.o,2)}</b></div><div><span>昨收</span><b>${F(q.y,2)}</b></div><div><span>最高</span><b class="${cls(q.h-q.y)}">${F(q.h,2)}</b></div><div><span>最低</span><b class="${cls(q.l-q.y)}">${F(q.l,2)}</b></div><div><span>成交量</span><b>${isFinite(q.v)?fmtC(q.v,0)+" 張":"—"}</b></div><div><span>漲/跌停</span><b>${isFinite(q.u)?F(q.u,2)+"/"+F(q.w,2):"—"}</b></div></div>
@@ -1000,6 +1023,18 @@ function renderStock(){
    <div class="sec"><span>相關新聞</span></div>${nn.map(newsHTML).join("")||`<div class="empty">最新新聞中沒有提到這檔</div>`}
    <button class="btn ${inG?"ghost":""}" data-toggle="${c}">${inG?"從「"+esc(g.name)+"」移除":"＋ 加入「"+esc(g.name)+"」"}</button>`;
   if(kFull)$("kwrap").classList.add("kfull");drawK();bindStockForms(c);
+}
+function fundHTML(c){
+  const f=fd(c),rv=(kfMem[c]&&kfMem[c].rv)||[];if(!Object.keys(f).length&&!rv.length)return "";
+  const v=(x,d,u="")=>typeof x==="number"?F(x,d)+u:"—",pc=x=>typeof x==="number"?`<b class="${cls(x)}">${x>0?"+":""}${F(x,1)}%</b>`:"—";
+  const lot=x=>typeof x==="number"?`<b class="${cls(x)}">${x>0?"+":""}${fmtC(x,0)}</b>`:"—",stk=x=>!x?"—":`<b class="${x>0?"up":"down"}">${x>0?"連買 "+x:"連賣 "+(-x)} 天</b>`;
+  let h=`<div class="sec"><span>基本面</span><span>${f.rym?"營收 "+String(f.rym).slice(0,4)+"/"+String(f.rym).slice(4):""}</span></div>
+   <div class="kv"><div><span>本益比</span><b>${v(f.pe,1)}</b></div><div><span>殖利率</span><b>${v(f.dy,2,"%")}</b></div><div><span>淨值比</span><b>${v(f.pb,2)}</b></div><div><span>月營收</span><b>${f.rv?fmtBig(f.rv*1000):"—"}</b></div><div><span>營收月增</span>${pc(f.rvm)}</div><div><span>營收年增</span>${pc(f.rvy)}</div></div>`;
+  if(rv.length>1){const mx=Math.max(...rv.map(r=>r[1]))||1;
+    h+=`<div class="rvc">${rv.map(r=>`<div><i style="height:${Math.max(2,r[1]/mx*56)}px;background:${r[3]>0?"var(--up)":r[3]<0?"var(--down)":"#666"}"></i><small>${String(r[0]).slice(4)}</small></div>`).join("")}</div><div class="foot" style="padding-top:0">近 ${rv.length} 個月營收；紅色＝比去年同月成長、綠色＝衰退</div>`}
+  if("f20" in f)h+=`<div class="sec"><span>法人動向（張）</span><span>${esc(fund.date||"")}</span></div>
+   <div class="kv"><div><span>外資近 5 日</span>${lot(f.f5)}</div><div><span>外資近 20 日</span>${lot(f.f20)}</div><div><span>外資</span>${stk(f.fs)}</div><div><span>投信近 5 日</span>${lot(f.t5)}</div><div><span>投信近 20 日</span>${lot(f.t20)}</div><div><span>投信</span>${stk(f.ts)}</div></div>`;
+  return h;
 }
 function lbStockHTML(c){
   const x=lbItem(c);if(!x)return lowbase?`<div class="sec"><span>低檔分析</span></div><div class="lbx mute">這檔目前沒有在低檔橫盤 3 個月以上（或成交量太少），不在選股名單中。</div>`:"";
@@ -1079,7 +1114,7 @@ document.addEventListener("click",e=>{
   const lf=t.closest("[data-lbf]");if(lf){const k=lf.dataset.lbf,v=lf.dataset.v;LBF[k]=["mkt","sort"].includes(k)?v:+v;store.set("lbF",LBF);const el=ovKind?$("ovBody"):$("main"),sc=el.scrollTop;ovKind?renderOv():render();el.scrollTop=sc;return}
   const lc=t.closest("[data-lbcat]");if(lc){LBF.cat=lc.dataset.lbcat;store.set("lbF",LBF);render();return}
   const lm=t.closest("[data-lbm]");if(lm){openSheet("lb:"+lm.dataset.lbm);return}
-  if(t.closest("[data-lbreset]")){LBF={per:63,amp:20,pos:33,dd:20,vol:100,mkt:"",sort:"sig",cat:""};store.set("lbF",LBF);render();toast("條件已重設");return}
+  if(t.closest("[data-lbreset]")){LBF={per:63,amp:20,pos:33,dd:20,vol:100,mkt:"",sort:"sig",cat:"",fx:""};store.set("lbF",LBF);render();toast("條件已重設");return}
   const lv=t.closest("[data-lbv]");if(lv){LBV=lv.dataset.lbv;store.set("lbV",LBV);const sc=$("main").scrollTop;render();$("main").scrollTop=Math.min(sc,0);return}
   const lg=t.closest("[data-lbgo]");if(lg){LBV=lg.dataset.lbgo;store.set("lbV",LBV);go("pick");return}
   if(t.closest("#tbAdd")){go("add");return}
@@ -1145,6 +1180,7 @@ async function boot(force){
     loadInfo(force).then(rerender),
     loadNews(force),
     loadMops(force),
+    loadFund(force).then(()=>{if(ovKind==="stock")renderStock()}),
     loadLowbase(force).then(()=>{if(tab==="pick"||tab==="home")refreshRT();if(ovKind==="lowbase")renderOv();else if(ovKind==="stock")renderStock();else if(!ovKind&&(tab==="pick"||tab==="home"||(tab==="watch"&&gSel==="p:low")))render()}),
     loadDaily(false).then(()=>Promise.all([loadFlows(force),loadInsti(force)])).then(rerender)
   ]);

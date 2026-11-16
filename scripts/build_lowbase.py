@@ -179,7 +179,7 @@ def fetch_industry():
     return out
 
 
-def compute(h):
+def compute(h, fund=None):
     dates = sorted(h["days"])
     if not dates:
         return None
@@ -224,6 +224,7 @@ def compute(h):
             "bo": 1 if prev and px > max(prev) else 0,    # 今天收盤突破前 60 日最高
             "nd": len(rs),
             "ic": ind.get(c, ""),                          # 產業別代碼
+            **{k: v for k, v in ((fund or {}).get("s", {}).get(c, {})).items() if k in ("pe", "dy", "pb", "rvy", "rvm", "f5", "f20", "fs", "t5", "t20", "ts")},
         })
     return {"date": last, "days": len(dates), "generated": dt.datetime.now(TW).strftime("%Y-%m-%d %H:%M"), "items": items}
 
@@ -249,7 +250,7 @@ def agg(bars, key):
     return out
 
 
-def write_kfiles(h):
+def write_kfiles(h, rv=None):
     """每檔股票輸出一個 K 線檔（日 K 最近 500 天、週 K 最近 156 週、月 K 最近 120 個月），App 一次下載就能畫圖"""
     dates = sorted(h["days"])
     series = {}
@@ -262,7 +263,16 @@ def write_kfiles(h):
     for c, bars in series.items():
         if c not in h["days"][dates[-1]]:
             continue  # 已下市或停牌太久
-        res = {"d": [pk(b) for b in bars[-500:]],
+        # 各年份的日 K（App 往前看時才下載）
+        os.makedirs(f"out/kd/{c}", exist_ok=True)
+        yrs = {}
+        for b in bars:
+            yrs.setdefault(b[0][:4], []).append(pk(b))
+        for y, bs in yrs.items():
+            with open(f"out/kd/{c}/{y}.json", "w") as f:
+                json.dump(bs, f, separators=(",", ":"))
+        res = {"d": [pk(b) for b in bars[-500:]], "y0": int(min(yrs)),
+               "rv": (rv or {}).get(c, []),
                "w": [pk(b) for b in agg(bars[-156 * 5 - 25:], week_key)[-156:]],
                "m": [pk(b) for b in agg(bars, lambda d: d[:7])[-120:]]}
         with open(f"out/k/{c}.json", "w") as f:
@@ -275,13 +285,19 @@ def main():
     h = load_hist()
     h = update(h)
     save_hist(h)
-    res = compute(h)
+    fund, rvh = {}, {}
+    try:
+        import build_fund
+        fund, rvh = build_fund.run(sorted(h["days"]))
+    except Exception as e:
+        print("基本面／籌碼資料失敗（不影響低檔盤整）", e, flush=True)
+    res = compute(h, fund)
     if not res:
         print("沒有資料"); sys.exit(1)
     os.makedirs("out", exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(res, f, ensure_ascii=False, separators=(",", ":"))
-    write_kfiles(h)
+    write_kfiles(h, rvh)
     print(f"完成：{res['date']}，共 {res['days']} 個交易日，{len(res['items'])} 檔", flush=True)
 
 
