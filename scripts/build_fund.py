@@ -17,11 +17,11 @@ INSTI = "cache/insti.json.gz"
 REV = "cache/rev.json.gz"
 
 
-def raw(url, tries=3):
+def raw(url, tries=3, timeout=60):
     for i in range(tries):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": UA})
-            with urllib.request.urlopen(req, timeout=60) as r:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
                 return r.read()
         except Exception as e:
             print("  retry", i + 1, url[-70:], e, flush=True)
@@ -29,8 +29,8 @@ def raw(url, tries=3):
     return None
 
 
-def getj(url):
-    b = raw(url)
+def getj(url, tries=3, timeout=60):
+    b = raw(url, tries, timeout)
     if b is None:
         return None
     try:
@@ -119,16 +119,27 @@ def fetch_rev_latest(rev):
 ROW = re.compile(r"<td[^>]*>\s*(\d{4})\s*</td>\s*<td[^>]*>[^<]*</td>" + r"\s*<td[^>]*>\s*([-\d,.]+)\s*</td>" * 5)
 
 
+DEAD = set()  # 這次執行中連不上的網站，不再嘗試
+
+
 def fetch_rev_month(ym):
     """從公開資訊觀測站補過去月份（上市 sii、上櫃 otc，各國內與國外公司）"""
     y, m = int(ym[:4]) - 1911, int(ym[4:])
     out = {}
     for host in ("mopsov.twse.com.tw", "mops.twse.com.tw"):
+        if host in DEAD:
+            continue
+        fails = 0
         for mk in ("sii", "otc"):
             for t in (0, 1):
-                b = raw(f"https://{host}/nas/t21/{mk}/t21sc03_{y}_{m}_{t}.html", tries=2)
+                b = raw(f"https://{host}/nas/t21/{mk}/t21sc03_{y}_{m}_{t}.html", tries=1, timeout=20)
                 time.sleep(SLEEP)
                 if not b:
+                    fails += 1
+                    if fails >= 2 and not out:
+                        DEAD.add(host)
+                        print("  ", host, "連不上，這次不再嘗試", flush=True)
+                        break
                     continue
                 for enc in ("big5", "cp950", "utf-8"):
                     try:
@@ -140,6 +151,8 @@ def fetch_rev_month(ym):
                     v = n(g[1])
                     if v is not None:
                         out[g[0]] = [v, n(g[4]), n(g[5])]
+            if host in DEAD:
+                break
         if out:
             break
     print(f"  補 {ym} 月營收：{len(out)} 筆", flush=True)
@@ -153,12 +166,17 @@ def update_rev():
     except Exception as e:
         print("最新月營收失敗", e, flush=True)
     want = ym_list(13)
+    t0 = time.time()
     for ym in want:
+        if time.time() - t0 > 360 or len(DEAD) >= 2:
+            print("  補月營收時間到或網站連不上，剩下的下次再補", flush=True)
+            break
         if len(rev.get(ym, {})) < 500:  # 沒有或太少就補
             try:
                 got = fetch_rev_month(ym)
                 if got:
                     rev[ym] = {**got, **rev.get(ym, {})}  # 已有的（OpenAPI）優先
+                    save(REV, rev)
             except Exception as e:
                 print("  補月營收失敗", ym, e, flush=True)
     rev = {k: v for k, v in rev.items() if k >= want[-1]}
@@ -171,7 +189,7 @@ def update_rev():
 def fetch_insti_day(d):
     """回傳 {代號: [外資, 投信, 自營]}（張）；資料還沒公布回傳 None"""
     out = {}
-    j = getj(f"https://www.twse.com.tw/rwd/zh/fund/T86?date={d.replace('-', '')}&selectType=ALLBUT0999&response=json")
+    j = getj(f"https://www.twse.com.tw/rwd/zh/fund/T86?date={d.replace('-', '')}&selectType=ALLBUT0999&response=json", 2, 30)
     time.sleep(SLEEP)
     if not j or j.get("stat") != "OK":
         return None
@@ -179,7 +197,7 @@ def fetch_insti_day(d):
         c = str(r[0]).strip()
         if re.fullmatch(r"\d{4}", c):
             out[c] = [round(((n(r[4]) or 0) + (n(r[7]) or 0)) / 1000), round((n(r[10]) or 0) / 1000), round((n(r[11]) or 0) / 1000)]
-    j = getj(f"https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date={d.replace('-', '/')}&response=json")
+    j = getj(f"https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date={d.replace('-', '/')}&response=json", 2, 30)
     time.sleep(SLEEP)
     t = (j or {}).get("tables") or [{}]
     for r in t[0].get("data", []) if t else []:
@@ -192,14 +210,19 @@ def fetch_insti_day(d):
 def update_insti(dates):
     ins = load(INSTI, {})
     want = dates[-25:]
-    for d in want:
+    t0 = time.time()
+    for d in want[::-1]:  # 新的日期先抓
         if d in ins:
             continue
+        if time.time() - t0 > 480:
+            print("  法人資料時間到，剩下的下次再補", flush=True)
+            break
         try:
             got = fetch_insti_day(d)
             if got:
                 ins[d] = got
                 print(f"  法人 {d}：{len(got)} 檔", flush=True)
+                save(INSTI, ins)
         except Exception as e:
             print("  法人失敗", d, e, flush=True)
     ins = {k: v for k, v in ins.items() if k >= want[0]}
