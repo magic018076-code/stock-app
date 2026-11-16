@@ -226,7 +226,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=13; // 介面版本，要和 ota.json 一致
+const UI_V=14; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:20,fs:"m"},store.get("settings",{}));
 let groups=store.get("groups",null);
@@ -540,9 +540,41 @@ function kLegend(bars,i){
   if(!bars.length)return"";if(i<0||i>=bars.length)i=bars.length-1;const b=bars[i],p=i>0?bars[i-1][4]:b[1],c=cls(b[4]-p);
   return `<span class="mute">${b[0]}</span><span>開<b class="${cls(b[1]-p)}">${F(b[1],2)}</b></span><span>高<b class="${cls(b[2]-p)}">${F(b[2],2)}</b></span><span>低<b class="${cls(b[3]-p)}">${F(b[3],2)}</b></span><span>收<b class="${c}">${F(b[4],2)}</b></span><span>量 ${fmtC(b[5],0)}</span><span style="color:#f5c542">MA5 ${F(ma(bars,5,i),2)}</span><span style="color:#c77dff">MA20 ${F(ma(bars,20,i),2)}</span><span style="color:#3ba7ff">MA60 ${F(ma(bars,60,i),2)}</span>`;
 }
-function kBars(c){const raw=histMem[c]||[];return aggregate(raw,kMode).slice(-KN[kMode][1])}
+/* K 線檔：GitHub 每天收盤後算好（日／週／月 K），一次下載；盤中再接上即時價 */
+const KF_URL="https://raw.githubusercontent.com/magic018076-code/stock-app/data/k/";
+let kfMem={};
+const kd=n=>{const s=String(n);return s.slice(0,4)+"-"+s.slice(4,6)+"-"+s.slice(6)};
+async function loadKFile(c){
+  if(kfMem[c])return kfMem[c];
+  const key="kf_"+c,hit=store.get(key,null),stamp=lowbase&&lowbase.date||today();
+  if(hit&&hit.s===stamp){kfMem[c]=hit.v;return hit.v}
+  const j=await getJSON(KF_URL+c+".json?s="+stamp,12000);
+  const v={d:j.d.map(b=>[kd(b[0]),...b.slice(1)]),w:j.w.map(b=>[kd(b[0]),...b.slice(1)]),m:j.m.map(b=>[kd(b[0]),...b.slice(1)])};
+  kfMem[c]=v;store.set(key,{s:stamp,v});
+  // 手機只保留最近看過的 30 檔，避免存太多
+  const ix=store.get("kfIdx",[]).filter(x=>x!==c);ix.push(c);while(ix.length>30)store.del("kf_"+ix.shift());store.set("kfIdx",ix);
+  return v;
+}
+function liveBar(c,last){
+  // 證交所即時報價的日期比 K 線檔最後一天新，就把今天當成最新一根
+  const r=rt[c];if(!r||r.stale||!isFinite(r.z)||!/^\d{8}$/.test(String(r.d||"")))return null;
+  const d=kd(r.d);if(last&&d<=last[0])return null;
+  return [d,isFinite(r.o)?r.o:r.z,isFinite(r.h)?r.h:r.z,isFinite(r.l)?r.l:r.z,r.z,isFinite(r.v)?r.v:0];
+}
+function kBars(c){
+  const f=kfMem[c];
+  if(f){
+    let a=f[kMode].slice();const lb=liveBar(c,f.d[f.d.length-1]);
+    if(lb){const last=a[a.length-1],same=kMode==="d"?false:kMode==="m"?last&&last[0].slice(0,7)===lb[0].slice(0,7):last&&aggregate([last,lb],"w").length===1;
+      if(same){const x=last.slice();x[0]=lb[0];x[2]=Math.max(x[2],lb[2]);x[3]=Math.min(x[3],lb[3]);x[4]=lb[4];x[5]+=lb[5];a[a.length-1]=x}else a.push(lb)}
+    return a.slice(-KN[kMode][1]);
+  }
+  const raw=histMem[c]||[];return aggregate(raw,kMode).slice(-KN[kMode][1]);
+}
 let kLoading={};
 async function ensureHist(c){
+  if(kfMem[c])return drawK();
+  if(kLoading["f_"+c]!==2){kLoading["f_"+c]=1;try{await loadKFile(c);if(ovKind==="stock"&&ovArg===c)drawK();return}catch(e){kLoading["f_"+c]=2}}
   const need=KN[kMode][0],key=c+"_"+need;if(kLoading[key])return;kLoading[key]=1;
   const h=await loadHist(c,need,part=>{histMem[c]=part;if(ovKind==="stock"&&ovArg===c)drawK()});
   histMem[c]=h;if(ovKind==="stock"&&ovArg===c)drawK();
@@ -1037,6 +1069,8 @@ async function boot(force){
   rerender();
 }
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)boot(false)});
+// 清理舊版留在手機裡的逐月 K 線快取（現在改用 K 線檔），只留最近 120 筆
+try{const ks=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(/^h_/.test(k))ks.push(k)}if(ks.length>120){ks.sort((a,b)=>a.slice(-6).localeCompare(b.slice(-6)));ks.slice(0,ks.length-120).forEach(k=>localStorage.removeItem(k))}}catch(e){}
 applyS();render();boot(false);schedule();getMyVer().then(()=>{if(tab==="more")render()});setTimeout(()=>checkUpdate(false),2500);
 /* ===== 介面自動更新（由 index.html 載入器負責下載） ===== */
 window.__appOK=true;store.del("ota_booting");

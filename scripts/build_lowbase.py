@@ -209,6 +209,49 @@ def compute(h):
     return {"date": last, "days": len(dates), "generated": dt.datetime.now(TW).strftime("%Y-%m-%d %H:%M"), "items": items}
 
 
+def week_key(d):
+    x = dt.date.fromisoformat(d)
+    return (x - dt.timedelta(days=x.weekday())).isoformat()
+
+
+def agg(bars, key):
+    """把日 K 合成週 K／月 K（日期用該期間最後一個交易日，和 App 一致）"""
+    out, cur, k0 = [], None, None
+    for b in bars:
+        k = key(b[0])
+        if k != k0:
+            if cur:
+                out.append(cur)
+            k0, cur = k, list(b)
+        else:
+            cur[0] = b[0]; cur[2] = max(cur[2], b[2]); cur[3] = min(cur[3], b[3]); cur[4] = b[4]; cur[5] += b[5]
+    if cur:
+        out.append(cur)
+    return out
+
+
+def write_kfiles(h):
+    """每檔股票輸出一個 K 線檔（日 K 最近 130 天、週 K 最近 60 週、月 K 最近 120 個月），App 一次下載就能畫圖"""
+    dates = sorted(h["days"])
+    series = {}
+    for d in dates:
+        for c, r in h["days"][d].items():
+            series.setdefault(c, []).append([d, r[2], r[3], r[4], r[5], r[6]])
+    os.makedirs("out/k", exist_ok=True)
+    pk = lambda b: [int(b[0].replace("-", "")), round(b[1], 2), round(b[2], 2), round(b[3], 2), round(b[4], 2), int(b[5])]
+    n = 0
+    for c, bars in series.items():
+        if c not in h["days"][dates[-1]]:
+            continue  # 已下市或停牌太久
+        res = {"d": [pk(b) for b in bars[-130:]],
+               "w": [pk(b) for b in agg(bars[-60 * 5 - 25:], week_key)[-60:]],
+               "m": [pk(b) for b in agg(bars, lambda d: d[:7])[-120:]]}
+        with open(f"out/k/{c}.json", "w") as f:
+            json.dump(res, f, separators=(",", ":"))
+        n += 1
+    print(f"K 線檔：{n} 檔", flush=True)
+
+
 def main():
     h = load_hist()
     h = update(h)
@@ -219,6 +262,7 @@ def main():
     os.makedirs("out", exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(res, f, ensure_ascii=False, separators=(",", ":"))
+    write_kfiles(h)
     print(f"完成：{res['date']}，共 {res['days']} 個交易日，{len(res['items'])} 檔", flush=True)
 
 

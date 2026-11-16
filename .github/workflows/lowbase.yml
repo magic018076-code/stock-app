@@ -46,6 +46,6 @@ jobs:
         run: |
           cd out
           git init -q -b data
-          git add lowbase.json
+          git add -A
           git -c user.name="stock-app-bot" -c user.email="bot@users.noreply.github.com" commit -qm "lowbase $(date -u +%F)"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" data
