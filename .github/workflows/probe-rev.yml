@@ -1,0 +1,30 @@
+name: 檢查歷史營收來源
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 測試各個歷史月營收網址
+        run: |
+          UA="Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36"
+          for u in \
+            "https://mopsov.twse.com.tw/nas/t21/sii/t21sc03_115_9_0.html" \
+            "https://mopsov.twse.com.tw/nas/t21/otc/t21sc03_115_9_0.html" \
+            "https://mops.twse.com.tw/nas/t21/sii/t21sc03_115_9_0.html" \
+            "https://mopsov.twse.com.tw/server-java/FileDownLoad?step=9&functionName=show_file2&filePath=%2Ft21%2Fsii%2F&fileName=t21sc03_115_9.csv" \
+            "https://mops.twse.com.tw/server-java/FileDownLoad?step=9&functionName=show_file2&filePath=%2Ft21%2Fsii%2F&fileName=t21sc03_115_9.csv" \
+            "https://mopsov.twse.com.tw/nas/t21/sii/t21sc03_110_1_0.html" \
+            "https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockMonthRevenue&data_id=2330&start_date=2016-01-01" \
+            "https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockMonthRevenue&start_date=2026-10-01&end_date=2026-10-31" \
+            "https://www.twse.com.tw/rwd/zh/fund/T86?date=20251114&selectType=ALLBUT0999&response=json" \
+            "https://www.twse.com.tw/rwd/zh/fund/T86?date=20161114&selectType=ALLBUT0999&response=json" \
+            "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date=2025/11/14&response=json" ; do
+            echo "=== $u"
+            curl -sS -A "$UA" -m 40 -o /tmp/r -w "HTTP %{http_code}  大小 %{size_download}  類型 %{content_type}\n" "$u" || echo 失敗
+            head -c 300 /tmp/r | iconv -f big5 -t utf-8 2>/dev/null | tr '\n' ' ' | head -c 300; echo
+            grep -o "2330" /tmp/r | head -1
+            sleep 2
+          done
