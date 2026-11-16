@@ -133,8 +133,13 @@ def fetch_rev_month(ym):
     for mk in ("sii", "otc"):
         if "mopsov" in DEAD:
             break
-        b = raw(f"https://mopsov.twse.com.tw/server-java/FileDownLoad?step=9&functionName=show_file2&filePath=%2Ft21%2F{mk}%2F&fileName=t21sc03_{y}_{m}.csv", tries=2, timeout=40)
-        time.sleep(SLEEP)
+        url = f"https://mopsov.twse.com.tw/server-java/FileDownLoad?step=9&functionName=show_file2&filePath=%2Ft21%2F{mk}%2F&fileName=t21sc03_{y}_{m}.csv"
+        b = raw(url, tries=2, timeout=40)
+        time.sleep(5)  # 觀測站有流量限制，放慢一點
+        if not b:
+            print("   mopsov 暫時拒絕，等 60 秒再試", flush=True)
+            time.sleep(60)
+            b = raw(url, tries=1, timeout=40)
         if not b:
             DEAD.add("mopsov")
             print("   mopsov 連不上，這次不再嘗試", flush=True)
@@ -174,7 +179,7 @@ def update_rev():
     want = ym_list(REV_MONTHS)
     t0 = time.time()
     for ym in want:  # 由近到遠補
-        if time.time() - t0 > 480 or DEAD:
+        if time.time() - t0 > 600 or DEAD:
             print("  補月營收時間到或網站連不上，剩下的下次再補", flush=True)
             break
         if len(rev.get(ym, {})) < 800:  # 沒有或太少就補（每月上市櫃約 1,800 家）
