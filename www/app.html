@@ -102,6 +102,8 @@ input[type=search],input[type=text]{flex:1;background:#1b1d22;border:1px solid #
 .ktab button.on{color:var(--acc);border-color:var(--acc)}
 .kleg{display:flex;gap:10px;flex-wrap:wrap;padding:6px 10px 0;font-size:.74rem;font-variant-numeric:tabular-nums;min-height:22px}
 #kc{display:block;width:100%;touch-action:pan-y}
+.rvc.thin{gap:1px;padding-bottom:14px}.rvc.thin div{position:relative;min-width:0}.rvc.thin small{position:absolute;bottom:-14px;left:0;font-size:.55rem;margin:0}
+.fic{display:flex;align-items:center;gap:8px;padding:6px 12px 0}.fic span{font-size:.75rem;color:var(--mute);width:28px;flex:none}.fic div{flex:1;height:50px;display:flex;gap:1px;background:linear-gradient(#333,#333) center/100% 1px no-repeat}.fic em{flex:1;position:relative;height:100%}.fic i{position:absolute;left:0;right:0;display:block}
 .rvc{display:flex;align-items:flex-end;gap:3px;height:80px;padding:8px 12px 0}.rvc div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}.rvc i{display:block;width:100%;border-radius:2px 2px 0 0;opacity:.85}.rvc small{font-size:.62rem;color:var(--mute);margin-top:2px}
 .kma{display:flex;gap:5px;padding:6px 10px 0;overflow-x:auto;scrollbar-width:none}
 .kma button{border:1px solid #444;border-radius:12px;padding:2px 9px;font-size:.74rem;color:#888;flex:none;white-space:nowrap}
@@ -271,7 +273,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=32; // 介面版本，要和 ota.json 一致
+const UI_V=33; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:10,fs:"m"},store.get("settings",{}));
 if(S.int===20&&!S.intSet)S.int=10; // 舊預設 20 秒改成 10 秒（使用者自己選過的不動）
@@ -746,7 +748,7 @@ async function loadKFile(c){
   const key="kf_"+c,hit=store.get(key,null),stamp=lowbase&&lowbase.date||today();
   if(hit&&hit.s===stamp){kfMem[c]=hit.v;return hit.v}
   const j=await getJSON(KF_URL+c+".json?s="+stamp,12000);
-  const v={d:j.d.map(b=>[kd(b[0]),...b.slice(1)]),w:j.w.map(b=>[kd(b[0]),...b.slice(1)]),m:j.m.map(b=>[kd(b[0]),...b.slice(1)]),y0:j.y0||0,rv:j.rv||[]};
+  const v={d:j.d.map(b=>[kd(b[0]),...b.slice(1)]),w:j.w.map(b=>[kd(b[0]),...b.slice(1)]),m:j.m.map(b=>[kd(b[0]),...b.slice(1)]),y0:j.y0||0,rv:j.rv||[],fi:j.fi||[]};
   kfMem[c]=v;store.set(key,{s:stamp,v});
   // 手機只保留最近看過的 30 檔，避免存太多
   const ix=store.get("kfIdx",[]).filter(x=>x!==c);ix.push(c);while(ix.length>30)store.del("kf_"+ix.shift());store.set("kfIdx",ix);
@@ -1151,16 +1153,22 @@ function renderStock0(){
    <button class="btn ${inG?"ghost":""}" data-toggle="${c}">${inG?"從「"+esc(g.name)+"」移除":"＋ 加入「"+esc(g.name)+"」"}</button>`;
   if(kFull)$("kwrap").classList.add("kfull");drawK();bindStockForms(c);
 }
+let rvY=store.get("rvY",1);
 function fundHTML(c){
   const f=fd(c),rv=(kfMem[c]&&kfMem[c].rv)||[];if(!Object.keys(f).length&&!rv.length)return "";
   const v=(x,d,u="")=>typeof x==="number"?F(x,d)+u:"—",pc=x=>typeof x==="number"?`<b class="${cls(x)}">${x>0?"+":""}${F(x,1)}%</b>`:"—";
   const lot=x=>typeof x==="number"?`<b class="${cls(x)}">${x>0?"+":""}${fmtC(x,0)}</b>`:"—",stk=x=>!x?"—":`<b class="${x>0?"up":"down"}">${x>0?"連買 "+x:"連賣 "+(-x)} 天</b>`;
   let h=`<div class="sec"><span>基本面</span><span>${f.rym?"營收 "+String(f.rym).slice(0,4)+"/"+String(f.rym).slice(4):""}</span></div>
    <div class="kv"><div><span>本益比</span><b>${v(f.pe,1)}</b></div><div><span>殖利率</span><b>${v(f.dy,2,"%")}</b></div><div><span>淨值比</span><b>${v(f.pb,2)}</b></div><div><span>月營收</span><b>${f.rv?fmtBig(f.rv*1000):"—"}</b></div><div><span>營收月增</span>${pc(f.rvm)}</div><div><span>營收年增</span>${pc(f.rvy)}</div></div>`;
-  if(rv.length>1){const mx=Math.max(...rv.map(r=>r[1]))||1;
-    h+=`<div class="rvc">${rv.map(r=>`<div><i style="height:${Math.max(2,r[1]/mx*56)}px;background:${r[3]>0?"var(--up)":r[3]<0?"var(--down)":"#666"}"></i><small>${String(r[0]).slice(4)}</small></div>`).join("")}</div><div class="foot" style="padding-top:0">近 ${rv.length} 個月營收；紅色＝比去年同月成長、綠色＝衰退</div>`}
+  if(rv.length>1){const N={1:13,3:36,5:60,10:120}[rvY]||13,rs=rv.slice(-N),mx=Math.max(...rs.map(r=>r[1]))||1;
+    h+=`<div class="sec"><span>月營收（近 ${rs.length} 個月）</span><span class="opt">${[1,3,5,10].map(y=>`<button data-rvy="${y}" class="${rvY===y?"on":""}" ${y>1&&rv.length<=({3:13,5:36,10:60})[y]?"disabled style='opacity:.35'":""}>${y}年</button>`).join("")}</span></div>
+     <div class="rvc${rs.length>40?" thin":""}">${rs.map(r=>{const m=String(r[0]).slice(4);return `<div><i style="height:${Math.max(2,r[1]/mx*56)}px;background:${r[3]>0?"var(--up)":r[3]<0?"var(--down)":"#666"}"></i><small>${rs.length<=13?m:m==="01"?String(r[0]).slice(2,4):""}</small></div>`}).join("")}</div>
+     <div class="foot" style="padding-top:0">柱高＝月營收；紅色＝比去年同月成長、綠色＝衰退${rs.length>13?"；下方數字是年份（月營收的 1 月）":""}</div>`}
   if("f20" in f)h+=`<div class="sec"><span>法人動向（張）</span><span>${esc(fund.date||"")}</span></div>
-   <div class="kv"><div><span>外資近 5 日</span>${lot(f.f5)}</div><div><span>外資近 20 日</span>${lot(f.f20)}</div><div><span>外資</span>${stk(f.fs)}</div><div><span>投信近 5 日</span>${lot(f.t5)}</div><div><span>投信近 20 日</span>${lot(f.t20)}</div><div><span>投信</span>${stk(f.ts)}</div></div>`;
+   <div class="kv"><div><span>外資近 5 日</span>${lot(f.f5)}</div><div><span>投信近 5 日</span>${lot(f.t5)}</div><div><span>外資近 20 日</span>${lot(f.f20)}</div><div><span>投信近 20 日</span>${lot(f.t20)}</div><div><span>外資近 60 日</span>${lot(f.f60)}</div><div><span>投信近 60 日</span>${lot(f.t60)}</div><div><span>外資</span>${stk(f.fs)}</div><div><span>投信</span>${stk(f.ts)}</div></div>`;
+  const fi=(kfMem[c]&&kfMem[c].fi)||[];
+  if(fi.length>5){const rs=fi.slice(-60),bars=(k,nm)=>{const mx=Math.max(...rs.map(r=>Math.abs(r[k])))||1;return `<div class="fic"><span>${nm}</span><div>${rs.map(r=>`<em><i style="height:${Math.max(1,Math.abs(r[k])/mx*24)}px;${r[k]>=0?"bottom:50%":"top:50%"};background:${r[k]>=0?"var(--up)":"var(--down)"}"></i></em>`).join("")}</div></div>`};
+    h+=bars(1,"外資")+bars(2,"投信")+`<div class="foot" style="padding-top:0">近 ${rs.length} 個交易日每日買賣超：紅＝買超、綠＝賣超（${kd(rs[0][0]).slice(5)}～${kd(rs[rs.length-1][0]).slice(5)}）</div>`}
   return h;
 }
 function lbStockHTML(c){
@@ -1249,6 +1257,7 @@ document.addEventListener("click",e=>{
   const lg=t.closest("[data-lbgo]");if(lg){LBV=lg.dataset.lbgo;store.set("lbV",LBV);go("pick");return}
   if(t.closest("#tbAdd")){go("add");return}
   const km=t.closest("[data-kma]");if(km){const n=+km.dataset.kma;kMA=kMA.includes(n)?kMA.filter(x=>x!==n):[...kMA,n].sort((a,b)=>a-b);store.set("kMA",kMA);$("kma").innerHTML=maBtns();drawK();return}
+  const ry=t.closest("[data-rvy]");if(ry&&!ry.disabled){rvY=+ry.dataset.rvy;store.set("rvY",rvY);keepScroll(renderStock);return}
   const kz=t.closest("[data-kz]");if(kz){kZoom(+kz.dataset.kz);return}
   const kp=t.closest("[data-kp]");if(kp){kPan(+kp.dataset.kp);return}
   const kf=t.closest("[data-kf]");if(kf){kSetFull(kf.dataset.kf==="1");return}
