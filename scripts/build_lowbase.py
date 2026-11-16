@@ -162,6 +162,23 @@ def trail_len(closes, pct):
     return cnt
 
 
+def fetch_industry():
+    """上市、上櫃公司的產業別代碼（App 用來分科技股／傳產股／金融股）"""
+    out = {}
+    j = get("https://openapi.twse.com.tw/v1/opendata/t187ap03_L")
+    for r in j or []:
+        c, ic = str(r.get("公司代號", "")).strip(), str(r.get("產業別", "")).strip()
+        if c and ic:
+            out[c] = ic.zfill(2)
+    j = get("https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O")
+    for r in j or []:
+        c, ic = str(r.get("SecuritiesCompanyCode", "")).strip(), str(r.get("SecuritiesIndustryCode", "")).strip()
+        if c and ic:
+            out[c] = ic.zfill(2)
+    print(f"產業別：{len(out)} 家", flush=True)
+    return out
+
+
 def compute(h):
     dates = sorted(h["days"])
     if not dates:
@@ -171,6 +188,7 @@ def compute(h):
         for c, r in h["days"][d].items():
             series.setdefault(c, []).append(r)
     last = dates[-1]
+    ind = fetch_industry()
     items = []
     for c, rs in series.items():
         if len(rs) < 60 or c not in h["days"][last] or c.startswith("00"):  # 排除 ETF
@@ -205,6 +223,7 @@ def compute(h):
             "gap": round(abs(ma20 - ma60) / ma60 * 100, 2) if ma60 else 0,  # 均線糾結程度
             "bo": 1 if prev and px > max(prev) else 0,    # 今天收盤突破前 60 日最高
             "nd": len(rs),
+            "ic": ind.get(c, ""),                          # 產業別代碼
         })
     return {"date": last, "days": len(dates), "generated": dt.datetime.now(TW).strftime("%Y-%m-%d %H:%M"), "items": items}
 

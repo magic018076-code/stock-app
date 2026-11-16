@@ -136,6 +136,7 @@ input[type=search],input[type=text]{flex:1;background:#1b1d22;border:1px solid #
 .seg button+button{border-left:1px solid #444}
 .seg button.on{background:var(--acc);color:#000;font-weight:700}
 .seg button small{font-size:.75em;margin-left:3px;opacity:.8}
+.seg2{margin-top:0;border-color:#333}.seg2 button{padding:6px 0;font-size:.86rem}.seg2 button.on{background:#3a2d0a;color:var(--acc)}
 .fbar{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:4px 12px 10px;border-bottom:1px solid var(--line)}
 .fbar button{display:flex;flex-direction:column;align-items:flex-start;position:relative;background:#1b1d22;border:1px solid #3a3d44;border-radius:8px;padding:5px 8px;text-align:left;min-width:0}
 .fbar button span{font-size:.68rem;color:var(--mute)}
@@ -258,7 +259,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=21; // 介面版本，要和 ota.json 一致
+const UI_V=22; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:10,fs:"m"},store.get("settings",{}));
 if(S.int===20&&!S.intSet)S.int=10; // 舊預設 20 秒改成 10 秒（使用者自己選過的不動）
@@ -471,13 +472,18 @@ async function loadFlows(force){
 /* ===== 低檔盤整（GitHub 每天收盤後算好，App 下載結果） ===== */
 const LB_URL="https://raw.githubusercontent.com/magic018076-code/stock-app/data/lowbase.json";
 let lowbase=null;
-let LBF=Object.assign({per:63,amp:20,pos:33,dd:20,vol:100,mkt:"",sort:"sig"},store.get("lbF",{}));
+let LBF=Object.assign({per:63,amp:20,pos:33,dd:20,vol:100,mkt:"",sort:"sig",cat:""},store.get("lbF",{}));
+// 產業分類：科技股（電子相關）、金融股、其餘為傳產股
+const TECH=new Set(["半導體","電腦及週邊","光電","通信網路","電子零組件","電子通路","資訊服務","其他電子","數位雲端"]);
+function indOf(x){const n=(x.ic&&IND[x.ic])||(info.rows&&info.rows[x.c]&&info.rows[x.c][1])||"";return n}
+function catOf(x){const n=indOf(x);if(!n)return "";if(TECH.has(n))return "T";if(n==="金融保險")return "F";return "C"}
+const CATS=[["","全部"],["T","科技股"],["C","傳產股"],["F","金融股"]];
 async function loadLowbase(force){
   lowbase=await cached("lowbase",4,async()=>{const j=await getJSON(LB_URL+"?t="+Math.floor(Date.now()/600000));if(!j.items)throw new Error("bad");return j},force).catch(()=>lowbase);
 }
 function lbList(f=LBF){
   if(!lowbase)return [];
-  let a=lowbase.items.filter(x=>(x.len[String(f.amp)]||0)>=f.per&&(f.pos>=100||x.pos<=f.pos)&&(!f.dd||x.dd<=-f.dd)&&!/^00/.test(x.c)&&x.v20>=f.vol&&(!f.mkt||x.m===f.mkt));
+  let a=lowbase.items.filter(x=>(x.len[String(f.amp)]||0)>=f.per&&(f.pos>=100||x.pos<=f.pos)&&(!f.dd||x.dd<=-f.dd)&&!/^00/.test(x.c)&&x.v20>=f.vol&&(!f.mkt||x.m===f.mkt)&&(!f.cat||catOf(x)===f.cat));
   const k={sig:(x,y)=>(lbSig(y).s-lbSig(x).s)||(y.len[f.amp]-x.len[f.amp]),len:(x,y)=>y.len[f.amp]-x.len[f.amp],amp:(x,y)=>(x.bhi/x.blo)-(y.bhi/y.blo),pos:(x,y)=>x.pos-y.pos,bo:(x,y)=>(y.bo-x.bo)||(y.len[f.amp]-x.len[f.amp]),vol:(x,y)=>(x.v20/x.v120)-(y.v20/y.v120)}[f.sort]||((x,y)=>y.len[f.amp]-x.len[f.amp]);
   return a.sort(k);
 }
@@ -502,7 +508,7 @@ function lbCard(x,amp=LBF.amp){
   const sg=lbSig(x),d=v=>F(v,v>=1000?0:v>=100?1:2),r=rt[x.c],lv=r&&isFinite(r.z)&&isFinite(r.pct);
   const px=lv?r.z:x.px,ch=lv?r.pct:x.ch,k=ch>0?"up":ch<0?"down":"flat";
   const p=x.bhi>x.blo?Math.max(0,Math.min(100,(px-x.blo)/(x.bhi-x.blo)*100)):50;
-  return `<div class="lc" data-code="${x.c}"><div class="r1"><b>${esc(x.n)}</b><span class="cd">${x.c}${x.m==="O"?" 櫃":""}</span>${stars(sg.s)}<span class="px ${k}">${F(px,pxD(px))}</span><span class="pc ${k}">${ch>0?"+":""}${F(ch,2)}%</span></div>
+  return `<div class="lc" data-code="${x.c}"><div class="r1"><b>${esc(x.n)}</b><span class="cd">${x.c}${x.m==="O"?" 櫃":""}${indOf(x)?" ・"+esc(indOf(x)):""}</span>${stars(sg.s)}<span class="px ${k}">${F(px,pxD(px))}</span><span class="pc ${k}">${ch>0?"+":""}${F(ch,2)}%</span></div>
    <div class="r2"><span>盤整 <em>${mon(x.len[amp]||0)}</em></span><span>一年位置 <em>${F(x.pos,0)}%</em></span><span>距高點 ${F(x.dd,0)}%</span></div>
    <div class="rng"><i style="left:${p}%"></i></div><div class="rngl"><span>區間低 ${d(x.blo)}</span><span>現價在區間 ${F(p,0)}%</span><span>區間高 ${d(x.bhi)}</span></div>
    ${sg.t.length?`<div class="tags">${sg.t.map(([n,c])=>`<span class="tg ${c}">${n}</span>`).join("")}</div>`:""}</div>`;
@@ -525,6 +531,7 @@ function renderPick(){
   let h="";
   const v=lowbase?lbView():{all:[],sig:[],bo:[]};
   h+=`<div class="seg">${[["sig","起漲訊號"],["all","全部低檔"],["bo","今日突破"]].map(([k,t])=>`<button data-lbv="${k}" class="${LBV===k?"on":""}">${t}<small>${lowbase?v[k].length:""}</small></button>`).join("")}</div>`;
+  h+=`<div class="seg seg2">${CATS.map(([k,t])=>`<button data-lbcat="${k}" class="${(LBF.cat||"")===k?"on":""}">${t}</button>`).join("")}</div>`;
   h+=lbMenuBar();
   if(!lowbase){$("main").innerHTML=h+`<div class="empty">資料讀取中…<br><br>（第一次使用需要 GitHub 先算好資料）</div>`;return}
   if(LBF.per>lowbase.days-5)h+=`<div class="foot" style="color:#ffd27a">目前歷史資料只有 ${lowbase.days} 個交易日（約 ${mon(lowbase.days)}），還不夠判斷「${mon(LBF.per)}」的盤整。GitHub 正在往回補資料，補齊後就會出現結果。</div>`;
@@ -1063,8 +1070,9 @@ document.addEventListener("click",e=>{
   const rm=t.closest("[data-rm]");if(rm){const g=curGroup();g.codes=g.codes.filter(x=>x!==rm.dataset.rm);saveG();renderOv();return}
   const mv=t.closest("[data-mv]");if(mv){const g=curGroup(),i=+mv.dataset.mv,j=i+ +mv.dataset.d;if(j>=0&&j<g.codes.length){[g.codes[i],g.codes[j]]=[g.codes[j],g.codes[i]];saveG();renderOv()}return}
   const lf=t.closest("[data-lbf]");if(lf){const k=lf.dataset.lbf,v=lf.dataset.v;LBF[k]=["mkt","sort"].includes(k)?v:+v;store.set("lbF",LBF);const el=ovKind?$("ovBody"):$("main"),sc=el.scrollTop;ovKind?renderOv():render();el.scrollTop=sc;return}
+  const lc=t.closest("[data-lbcat]");if(lc){LBF.cat=lc.dataset.lbcat;store.set("lbF",LBF);render();return}
   const lm=t.closest("[data-lbm]");if(lm){openSheet("lb:"+lm.dataset.lbm);return}
-  if(t.closest("[data-lbreset]")){LBF={per:63,amp:20,pos:33,dd:20,vol:100,mkt:"",sort:"sig"};store.set("lbF",LBF);render();toast("條件已重設");return}
+  if(t.closest("[data-lbreset]")){LBF={per:63,amp:20,pos:33,dd:20,vol:100,mkt:"",sort:"sig",cat:""};store.set("lbF",LBF);render();toast("條件已重設");return}
   const lv=t.closest("[data-lbv]");if(lv){LBV=lv.dataset.lbv;store.set("lbV",LBV);const sc=$("main").scrollTop;render();$("main").scrollTop=Math.min(sc,0);return}
   const lg=t.closest("[data-lbgo]");if(lg){LBV=lg.dataset.lbgo;store.set("lbV",LBV);go("pick");return}
   if(t.closest("#tbAdd")){go("add");return}
