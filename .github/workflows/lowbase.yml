@@ -10,6 +10,8 @@ on:
     paths:
       - scripts/build_lowbase.py
       - scripts/build_fund.py
+      - scripts/build_adjust.py
+      - scripts/backtest.py
       - .github/workflows/lowbase.yml
 
 permissions:
@@ -32,6 +34,9 @@ jobs:
           path: cache
           key: lowbase-hist-${{ github.run_id }}
           restore-keys: lowbase-hist-
+
+      - name: 安裝計算套件（回測用）
+        run: pip install --quiet pandas numpy
 
       - name: 補資料並計算
         run: python3 scripts/build_lowbase.py

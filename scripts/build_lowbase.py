@@ -179,14 +179,33 @@ def fetch_industry():
     return out
 
 
-def compute(h, fund=None):
+def adj_series(h, ev):
+    """每檔股票的日資料（含日期），價格已做除權息還原：{代號: [[日期, 名稱, 市場, 開, 高, 低, 收, 量], ...]}"""
+    import build_adjust
     dates = sorted(h["days"])
-    if not dates:
-        return None
     series = {}
     for d in dates:
         for c, r in h["days"][d].items():
-            series.setdefault(c, []).append(r)
+            series.setdefault(c, []).append([d] + list(r))
+    if ev:
+        for c, rows in series.items():
+            e = ev.get(c)
+            if not e:
+                continue
+            fs = build_adjust.factors([r[0] for r in rows], e)
+            for r, f in zip(rows, fs):
+                if f != 1.0:
+                    r[3], r[4], r[5], r[6] = r[3] * f, r[4] * f, r[5] * f, r[6] * f
+    return series
+
+
+def compute(h, fund=None, series=None):
+    dates = sorted(h["days"])
+    if not dates:
+        return None
+    if series is None:
+        series = adj_series(h, None)
+    series = {c: [r[1:] for r in rows] for c, rows in series.items()}  # 去掉日期欄，沿用原本格式
     last = dates[-1]
     ind = fetch_industry()
     items = []
@@ -262,13 +281,12 @@ def agg(bars, key):
     return out
 
 
-def write_kfiles(h, rv=None, fi=None):
+def write_kfiles(h, rv=None, fi=None, series=None):
     """每檔股票輸出一個 K 線檔（日 K 最近 500 天、週 K 最近 156 週、月 K 最近 120 個月），App 一次下載就能畫圖"""
     dates = sorted(h["days"])
-    series = {}
-    for d in dates:
-        for c, r in h["days"][d].items():
-            series.setdefault(c, []).append([d, r[2], r[3], r[4], r[5], r[6]])
+    if series is None:
+        series = adj_series(h, None)
+    series = {c: [[r[0], r[3], r[4], r[5], r[6], r[7]] for r in rows] for c, rows in series.items()}
     os.makedirs("out/k", exist_ok=True)
     pk = lambda b: [int(b[0].replace("-", "")), round(b[1], 2), round(b[2], 2), round(b[3], 2), round(b[4], 2), int(b[5])]
     n = 0
@@ -304,13 +322,25 @@ def main():
         fund, rvh, fi = build_fund.run(sorted(h["days"]))
     except Exception as e:
         print("基本面／籌碼資料失敗（不影響低檔盤整）", e, flush=True)
-    res = compute(h, fund)
+    ev = {}
+    try:
+        import build_adjust
+        ev = build_adjust.update(min(h["days"]))
+    except Exception as e:
+        print("除權息資料失敗（先用原始股價）", e, flush=True)
+    series = adj_series(h, ev)
+    res = compute(h, fund, series)
     if not res:
         print("沒有資料"); sys.exit(1)
     os.makedirs("out", exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(res, f, ensure_ascii=False, separators=(",", ":"))
-    write_kfiles(h, rvh, fi)
+    write_kfiles(h, rvh, fi, series)
+    try:
+        import backtest
+        backtest.maybe_run(series, sorted(h["days"]), force=os.environ.get("FORCE_BT") == "1")
+    except Exception as e:
+        print("回測失敗（不影響其他資料）", e, flush=True)
     print(f"完成：{res['date']}，共 {res['days']} 個交易日，{len(res['items'])} 檔", flush=True)
 
 
