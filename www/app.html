@@ -180,6 +180,7 @@ nav button.pk svg{stroke:var(--acc)}
 .rmeter{position:relative;height:10px;margin:10px 0 3px;border-radius:5px;background:#26282e;overflow:hidden}.rmeter i{position:absolute;left:0;top:0;bottom:0;border-radius:5px;background:linear-gradient(90deg,#3a3d44,#ff7a1a 70%,#e8322a)}.rmeter s{position:absolute;right:0;top:0;bottom:0;width:2px;background:#fff}
 .btl{font-size:.74rem;color:var(--mute);margin-top:6px}.btl b{font-weight:600}
 .btbox{margin:8px 12px;border:1px solid #333;border-radius:8px;padding:8px 10px;font-size:.8rem;background:#0e0f12}.btbox summary{color:var(--acc);cursor:pointer}.btbox table{width:100%;border-collapse:collapse;margin-top:8px;font-variant-numeric:tabular-nums}.btbox td,.btbox th{padding:4px 2px;text-align:right;border-bottom:1px solid #222;font-weight:400}.btbox td:first-child,.btbox th:first-child{text-align:left}.btbox th{color:var(--mute);font-size:.72rem}
+.aib{display:inline-block;border:1px solid;border-radius:5px;padding:0 5px;font-size:.72rem;margin-left:4px;white-space:nowrap}
 .scb{display:inline-grid;place-items:center;min-width:34px;height:24px;border-radius:6px;color:#fff;font-weight:700;font-size:.9rem;margin-right:2px}
 .sgg{display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;gap:4px;margin-top:8px;background:#111317;border-radius:8px;padding:6px 8px}
 .sgg div{display:flex;flex-direction:column;min-width:0}.sgg span{font-size:.7rem;color:var(--mute);white-space:nowrap}.sgg b{font-size:.9rem;font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -215,7 +216,7 @@ body.swap .qr>div.lu{background:#0f7a0f}body.swap .qr>div.ld{background:#b30d0d}
     <button data-t="rise" class="pk"><svg viewBox="0 0 32 32"><path d="M4 25h24"/><path d="M6 21l6-5 5 3 9-10"/><path d="M20 9h6v6"/></svg>即將起漲</button>
     <button data-t="suggest"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="11"/><circle cx="16" cy="16" r="6"/><circle cx="16" cy="16" r="1.5"/><path d="M24 8l-6 6"/></svg>建議買進</button>
     <button data-t="pick"><svg viewBox="0 0 32 32"><path d="M4 24h6l3-3h6l3 3h6"/><path d="M22 19l4-10M22 9h4v4"/></svg>低檔選股</button>
-    <button data-t="add"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="11"/><path d="M16 10v12M10 16h12"/></svg>加入自選</button>
+    <button data-t="ai"><svg viewBox="0 0 32 32"><rect x="6" y="18" width="4" height="8"/><rect x="14" y="12" width="4" height="14"/><rect x="22" y="6" width="4" height="20"/><path d="M5 9l6-3 6 4 9-6"/></svg>數據精選</button>
   </nav>
 </div>
 
@@ -275,7 +276,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=34; // 介面版本，要和 ota.json 一致
+const UI_V=35; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:10,fs:"m"},store.get("settings",{}));
 if(S.int===20&&!S.intSet)S.int=10; // 舊預設 20 秒改成 10 秒（使用者自己選過的不動）
@@ -520,7 +521,7 @@ async function loadLowbase(force){
 function lbList(f=LBF){
   if(!lowbase)return [];
   let a=lowbase.items.filter(x=>(x.len[String(f.amp)]||0)>=f.per&&(f.pos>=100||x.pos<=f.pos)&&(!f.dd||x.dd<=-f.dd)&&!/^00/.test(x.c)&&x.v20>=f.vol&&(!f.mkt||x.m===f.mkt)&&(!f.cat||catOf(x)===f.cat)&&fxOK(x,f.fx));
-  const k={sig:(x,y)=>(lbSig(y).s-lbSig(x).s)||(y.len[f.amp]-x.len[f.amp]),len:(x,y)=>y.len[f.amp]-x.len[f.amp],amp:(x,y)=>(x.bhi/x.blo)-(y.bhi/y.blo),pos:(x,y)=>x.pos-y.pos,bo:(x,y)=>(y.bo-x.bo)||(y.len[f.amp]-x.len[f.amp]),vol:(x,y)=>(x.v20/x.v120)-(y.v20/y.v120)}[f.sort]||((x,y)=>y.len[f.amp]-x.len[f.amp]);
+  const k={ai:(x,y)=>(y.ai??-1)-(x.ai??-1),sig:(x,y)=>(lbSig(y).s-lbSig(x).s)||(y.len[f.amp]-x.len[f.amp]),len:(x,y)=>y.len[f.amp]-x.len[f.amp],amp:(x,y)=>(x.bhi/x.blo)-(y.bhi/y.blo),pos:(x,y)=>x.pos-y.pos,bo:(x,y)=>(y.bo-x.bo)||(y.len[f.amp]-x.len[f.amp]),vol:(x,y)=>(x.v20/x.v120)-(y.v20/y.v120)}[f.sort]||((x,y)=>y.len[f.amp]-x.len[f.amp]);
   return a.sort(k);
 }
 const mon=d=>d>=240?(d/245).toFixed(1)+"年":(d/21).toFixed(1)+"個月";
@@ -547,7 +548,7 @@ function lbCard(x,amp=LBF.amp){
   const sg=lbSig(x),d=v=>F(v,v>=1000?0:v>=100?1:2),r=rt[x.c],lv=r&&isFinite(r.z)&&isFinite(r.pct);
   const px=lv?r.z:x.px,ch=lv?r.pct:x.ch,k=ch>0?"up":ch<0?"down":"flat";
   const p=x.bhi>x.blo?Math.max(0,Math.min(100,(px-x.blo)/(x.bhi-x.blo)*100)):50;
-  return `<div class="lc" data-code="${x.c}"><div class="r1"><b>${esc(x.n)}</b><span class="cd">${x.c}${x.m==="O"?" 櫃":""}${indOf(x)?" ・"+esc(indOf(x)):""}</span>${stars(sg.s)}<span class="px ${k}">${F(px,pxD(px))}</span><span class="pc ${k}">${ch>0?"+":""}${F(ch,2)}%</span></div>
+  return `<div class="lc" data-code="${x.c}"><div class="r1"><b>${esc(x.n)}</b><span class="cd">${x.c}${x.m==="O"?" 櫃":""}${indOf(x)?" ・"+esc(indOf(x)):""}</span>${stars(sg.s)}${aiBadge(x.ai)}<span class="px ${k}">${F(px,pxD(px))}</span><span class="pc ${k}">${ch>0?"+":""}${F(ch,2)}%</span></div>
    <div class="r2"><span>盤整 <em>${mon(x.len[amp]||0)}</em></span><span>一年位置 <em>${F(x.pos,0)}%</em></span><span>距高點 ${F(x.dd,0)}%</span></div>
    <div class="rng"><i style="left:${p}%"></i></div><div class="rngl"><span>區間低 ${d(x.blo)}</span><span>現價在區間 ${F(p,0)}%</span><span>區間高 ${d(x.bhi)}</span></div>
    ${fundLine(x)}
@@ -561,7 +562,7 @@ const LBM=[
  ["vol","日均量",[[100,"≥100張"],[500,"≥500張"],[0,"不限"]]],
  ["mkt","市場",[["","全部"],["L","上市"],["O","上櫃"]]],
  ["fx","基本面",[["","不限"],["dy4","殖利率≥4%"],["pe15","本益比≤15"],["pb1","淨值比≤1"],["rv0","營收年增>0"],["rv20","營收年增≥20%"],["t3","投信連買≥3天"],["f5","外資連買≥5天"]]],
- ["sort","排序",[["sig","訊號最強"],["len","盤整最久"],["amp","區間最窄"],["pos","位置最低"],["vol","量縮最多"]]]];
+ ["sort","排序",[["sig","訊號最強"],["ai","數據分數"],["len","盤整最久"],["amp","區間最窄"],["pos","位置最低"],["vol","量縮最多"]]]];
 const LBSHORT={per:"盤整",amp:"振幅",pos:"位置",dd:"距高點",vol:"均量",mkt:"市場",fx:"基本面",sort:"排序"};
 function fxOK(x,k){switch(k||""){case "dy4":return x.dy>=4;case "pe15":return x.pe>0&&x.pe<=15;case "pb1":return x.pb>0&&x.pb<=1;case "rv0":return x.rvy>0;case "rv20":return x.rvy>=20;case "t3":return x.ts>=3;case "f5":return x.fs>=5;default:return true}}
 function fundLine(x){const a=[];if(x.pe>0)a.push("本益比 "+F(x.pe,1));if(x.dy>0)a.push("殖利率 "+F(x.dy,1)+"%");if(x.pb>0)a.push("淨值比 "+F(x.pb,2));if(typeof x.rvy==="number")a.push(`營收年增 <b class="${cls(x.rvy)}">${x.rvy>0?"+":""}${F(x.rvy,0)}%</b>`);return a.length?`<div class="r2" style="margin-top:4px;flex-wrap:wrap">${a.map(z=>"<span>"+z+"</span>").join("")}</div>`:""}
@@ -574,7 +575,8 @@ const lbSum=()=>`盤整 ${mon(LBF.per)}以上・振幅 ${LBF.amp}%・${LBF.pos>=
    規則計算，僅供參考，不構成投資建議。 */
 const tick=p=>p<10?0.01:p<50?0.05:p<100?0.1:p<500?0.5:p<1000?1:5;
 const rTick=(p,up)=>{const t=tick(p);return +(Math[up?"ceil":"floor"](p/t-1e-9)*t).toFixed(2)};
-let SGV=store.get("sgV","s"),SGC=store.get("sgC",""),sgPicked=false;
+let SGV=store.get("sgV","s"),SGC=store.get("sgC",""),SGS=store.get("sgS",""),sgPicked=false;
+const sortSeg=(key,cur,lab)=>`<div class="seg seg2">${[["",lab],["ai","依數據分數"]].map(([k,t])=>`<button data-${key}="${k}" class="${cur===k?"on":""}">${t}</button>`).join("")}</div>`;
 function sugOf(x){
   if(x._sg&&x._sg.at===(rt[x.c]&&rt[x.c].t))return x._sg.v;
   const r=rt[x.c],px=r&&!r.stale&&isFinite(r.z)?r.z:x.px,H=x.bhi-x.blo,L=x.len["20"]||0;let v=null;
@@ -604,14 +606,14 @@ function sugOf(x){
 }
 function sugList(){
   if(!lowbase)return {s:[],b:[],w:[]};
-  const a=lowbase.items.filter(x=>(!SGC||catOf(x)===SGC)).map(x=>[x,sugOf(x)]).filter(([x,v])=>v&&v.rr>=1.5&&v.sc>=35).sort((a,b)=>b[1].sc-a[1].sc||b[1].rr-a[1].rr);
+  const a=lowbase.items.filter(x=>(!SGC||catOf(x)===SGC)).map(x=>[x,sugOf(x)]).filter(([x,v])=>v&&v.rr>=1.5&&v.sc>=35).sort(SGS==="ai"?(a,b)=>(b[0].ai??-1)-(a[0].ai??-1)||b[1].sc-a[1].sc:(a,b)=>b[1].sc-a[1].sc||b[1].rr-a[1].rr);
   // 門檻依真實分數分布訂定：45 分以上約前 5%
   return {s:a.filter(z=>z[1].sc>=45),b:a.filter(z=>z[1].sc>=40&&z[1].sc<45),w:a.filter(z=>z[1].sc<40)};
 }
 function sugCard([x,v]){
   const r=rt[x.c],lv=r&&!r.stale&&isFinite(r.pct),ch=lv?r.pct:x.ch,k=ch>0?"up":ch<0?"down":"flat",d=p=>F(p,pxD(p)),ind=indOf(x);
   const col=v.sc>=45?"#e8322a":v.sc>=40?"#ffb020":"#7fb3ff";
-  return `<div class="lc sg" data-code="${x.c}"><div class="r1"><span class="scb" style="background:${col}">${v.sc}</span><b>${esc(x.n)}</b><span class="cd">${x.c}${ind?"・"+esc(ind):""}</span><span class="px ${k}">${d(v.px)}</span><span class="pc ${k}">${ch>0?"+":""}${F(ch,2)}%</span></div>
+  return `<div class="lc sg" data-code="${x.c}"><div class="r1"><span class="scb" style="background:${col}">${v.sc}</span><b>${esc(x.n)}</b><span class="cd">${x.c}${ind?"・"+esc(ind):""}</span>${aiBadge(x.ai)}<span class="px ${k}">${d(v.px)}</span><span class="pc ${k}">${ch>0?"+":""}${F(ch,2)}%</span></div>
    <div class="sgg"><div><span>${v.type}${v.inZone?" ✔":""}</span><b>${d(v.e1)} ~ ${d(v.e2)}</b></div><div><span>停損</span><b class="down">${d(v.stop)}</b></div><div><span>目標</span><b class="up">${d(v.tgt)}</b></div><div><span>風報比</span><b>${F(v.rr,1)} 倍</b></div></div>
    <div class="tags">${v.p.map(([n,s])=>`<span class="tg">${n} <em>+${s}</em></span>`).join("")}</div>${btLine("sug",techSc(v.p))}</div>`;
 }
@@ -619,7 +621,7 @@ function renderSuggest(){
   setTB("建議買進",{left:icBtn("tbSearch","search"),right:icBtn("tbRef","ref")});
   const L=sugList();if(!sgPicked&&lowbase&&!L[SGV].length)SGV=["s","b","w"].find(k=>L[k].length)||SGV;const cur=L[SGV]||L.s;
   let h=`<div class="seg">${[["s","強烈建議"],["b","建議買進"],["w","觀察名單"]].map(([k,t])=>`<button data-sgv="${k}" class="${SGV===k?"on":""}">${t}<small>${lowbase?L[k].length:""}</small></button>`).join("")}</div>`;
-  h+=`<div class="seg seg2">${CATS.map(([k,t])=>`<button data-sgc="${k}" class="${SGC===k?"on":""}">${t}</button>`).join("")}</div>`;
+  h+=`<div class="seg seg2">${CATS.map(([k,t])=>`<button data-sgc="${k}" class="${SGC===k?"on":""}">${t}</button>`).join("")}</div>`+sortSeg("sgs",SGS,"依原評分");
   if(!lowbase){$("main").innerHTML=h+`<div class="empty">資料讀取中…</div>`;return}
   h+=`<div class="sec"><span>${SGV==="s"?"45 分以上":SGV==="b"?"40～44 分":"35～39 分"}・${cur.length} 檔</span><span>資料到 ${esc(lowbase.date)}</span></div>`;
   h+=btBox("sug","建議買進");
@@ -632,7 +634,7 @@ function renderSuggest(){
 }
 /* ===== 即將起漲 =====
    盤中即時盯「快要突破盤整區」的低檔股：離上緣多近、今日量能、今日漲幅、盤整長度、均線糾結、法人。 */
-let RSC=store.get("rsC","");
+let RSC=store.get("rsC",""),RSS=store.get("rsS","");
 // 今天到目前為止，成交時間佔全天（09:00～13:30）的比例，用來推估今天的量是平常的幾倍
 function dayFrac(){const t=tp(),m=t.getUTCHours()*60+t.getUTCMinutes()-540;return isTrading()?Math.max(0.08,Math.min(1,m/270)):1}
 function riseOf(x){
@@ -659,13 +661,13 @@ function riseOf(x){
 }
 function riseList(){
   if(!lowbase)return [];
-  return lowbase.items.filter(x=>!RSC||catOf(x)===RSC).map(x=>[x,riseOf(x)]).filter(z=>z[1]&&z[1].sc>=50).sort((a,b)=>b[1].sc-a[1].sc||a[1].gap-b[1].gap);
+  return lowbase.items.filter(x=>!RSC||catOf(x)===RSC).map(x=>[x,riseOf(x)]).filter(z=>z[1]&&z[1].sc>=50).sort(RSS==="ai"?(a,b)=>(b[0].ai??-1)-(a[0].ai??-1)||b[1].sc-a[1].sc:(a,b)=>b[1].sc-a[1].sc||a[1].gap-b[1].gap);
 }
 function riseCard([x,v]){
   const k=v.ch>0?"up":v.ch<0?"down":"flat",ind=indOf(x),d=p=>F(p,pxD(p));
   const col=v.sc>=65?"#e8322a":v.sc>=55?"#ff7a1a":"#ffb020";
   const prog=Math.max(0,Math.min(100,100-v.gap/5*100)); // 季線下 5% 為 0，碰到季線為 100
-  return `<div class="lc" data-code="${x.c}"><div class="r1"><span class="scb" style="background:${col}">${v.sc}°</span><b>${esc(x.n)}</b><span class="cd">${x.c}${ind?"・"+esc(ind):""}</span><span class="px ${k}">${d(v.px)}</span><span class="pc ${k}">${v.ch>0?"+":""}${F(v.ch,2)}%</span></div>
+  return `<div class="lc" data-code="${x.c}"><div class="r1"><span class="scb" style="background:${col}">${v.sc}°</span><b>${esc(x.n)}</b><span class="cd">${x.c}${ind?"・"+esc(ind):""}</span>${aiBadge(x.ai)}<span class="px ${k}">${d(v.px)}</span><span class="pc ${k}">${v.ch>0?"+":""}${F(v.ch,2)}%</span></div>
    <div class="rmeter"><i style="width:${prog}%"></i><s></s></div>
    <div class="rngl"><span>季線下 5%</span><span class="${v.crossed?"up":""}">${v.crossed?"▲ 今天站上季線":"距離季線 "+F(v.gap,1)+"%"}</span><span>季線 ${d(v.m60)}${v.slope>=0?" ↗":v.slope>-0.5?" →":" ↘"}</span></div>
    <div class="tags">${v.p.map(([n,s])=>`<span class="tg">${n} <em>+${s}</em></span>`).join("")}</div>${btLine("rise",techSc(v.p))}</div>`;
@@ -673,7 +675,7 @@ function riseCard([x,v]){
 function renderRise(){
   setTB("即將起漲",{left:icBtn("tbSearch","search"),right:icBtn("tbRef","ref")});
   const L=riseList(),hot=L.filter(z=>z[1].sc>=65).length;
-  let h=`<div class="seg seg2" style="margin-top:10px">${CATS.map(([k,t])=>`<button data-rsc="${k}" class="${RSC===k?"on":""}">${t}</button>`).join("")}</div>`;
+  let h=`<div class="seg seg2" style="margin-top:10px">${CATS.map(([k,t])=>`<button data-rsc="${k}" class="${RSC===k?"on":""}">${t}</button>`).join("")}</div>`+sortSeg("rss",RSS,"依起漲溫度");
   if(!lowbase){$("main").innerHTML=h+`<div class="empty">資料讀取中…</div>`;return}
   const live=isTrading();
   h+=`<div class="sec"><span>${live?"● 盤中即時":"○ 非交易時間（依最近收盤）"}・準備突破季線 ${L.length} 檔${hot?"・🔥 "+hot+" 檔 65° 以上":""}</span><span>${rtInfo&&live?rtInfo.at:esc(lowbase.date)}</span></div>`;
@@ -682,6 +684,38 @@ function renderRise(){
   h+=`<div class="foot"><b>只列出還在季線（60 日均線）下方 5% 以內、準備站上季線的股票，以及今天盤中剛站上季線的股票</b>；已經在季線上面的不列入。<br>
    <b>起漲溫度</b>（滿分 100°，50° 以上才列出）：今天站上季線 35、離季線 1% 內 30、2% 內 25、3.5% 內 18、5% 內 10；季線翻揚 10、走平 6；在季線下超過 40 天 10、20 天 5（打底越久翻身越有力）；今日量是平常 2 倍以上 20、1.5 倍 15、1.2 倍 8（盤中依時間推估）；今日漲 3% 以上 15、1% 以上 10、上漲 5；站上月線 5；投信連買 10、外資連買 5。<br>
    盤中的季線用即時價計算。進度條碰到最右邊白線＝站上季線；季線後的 ↗ → ↘ 是季線方向。盤中每 ${S.int} 秒自動更新。<br><b style="color:#ffd27a">依公開資料以固定規則計算，僅供參考，不構成投資建議。</b></div>`;
+  $("main").innerHTML=h;
+}
+/* ===== 數據精選 =====
+   雲端用 10 年還原股價校準的模型（2017～2022 學習、2023 之後檢驗），每天收盤後幫低檔區股票打分數（0～100 百分位）。 */
+let aiD=null,AIC=store.get("aiC","");
+async function loadAI(force){aiD=await cached("ai",4,async()=>{const j=await getJSON(LB_URL.replace("lowbase.json","ai.json")+"?t="+Math.floor(Date.now()/600000));if(!j.items)throw new Error("bad");return j},force).catch(()=>aiD)}
+const aiCol=v=>v>=90?"#e8322a":v>=70?"#ff7a1a":"#555";
+const aiBadge=v=>typeof v==="number"?`<span class="aib" style="border-color:${aiCol(v)};color:${v>=70?aiCol(v):"#999"}">數據 ${v}</span>`:"";
+function aiDec(v){const d=aiD&&aiD.dec;if(!d)return null;const r=d.find(x=>v>=x[0]&&v<x[0]+10);return r&&r[1]&&r[1].n?r[1]:null}
+const PT_FMT={"離季線":v=>"離季線 "+(v>0?"+":"")+F(v,1)+"%","季線方向":v=>"季線"+(v>=0?"翻揚":"下彎")+" "+F(v,1)+"%","今日漲跌":v=>"今日 "+(v>0?"+":"")+F(v,1)+"%","今日量／20日均量":v=>"量 "+F(v,1)+" 倍","季線下天數":v=>"季線下 "+Math.round(v)+" 天","一年位置":v=>"一年位置 "+Math.round(v)+"%","近10日漲跌":v=>"近10日 "+(v>0?"+":"")+F(v,1)+"%","近60日漲跌":v=>"近60日 "+(v>0?"+":"")+F(v,1)+"%","距一年高點":v=>"距一年高點 "+F(v,0)+"%","近2月振幅":v=>"近2月振幅 "+F(v,0)+"%","創60日新高":v=>v?"創60日新高":"未創新高","站上月線":v=>v?"站上月線":"月線下","月季線差距":v=>"月季線差 "+F(v,1)+"%"};
+function aiCard(x){
+  const r=rt[x.c],lv=r&&!r.stale&&isFinite(r.z),px=lv?r.z:x.px,ch=lv&&isFinite(r.pct)?r.pct:x.ch,k=ch>0?"up":ch<0?"down":"flat",ind=(x.ic&&IND[x.ic])||"",dec=aiDec(x.ai);
+  return `<div class="lc" data-code="${x.c}"><div class="r1"><span class="scb" style="background:${aiCol(x.ai)}">${x.ai}</span><b>${esc(x.n)}</b><span class="cd">${x.c}${x.m==="O"?" 櫃":""}${ind?"・"+esc(ind):""}</span><span class="px ${k}">${F(px,pxD(px))}</span><span class="pc ${k}">${ch>0?"+":""}${F(ch,2)}%</span></div>
+   <div class="r2"><span>近60日 <em>${x.r60>0?"+":""}${F(x.r60,1)}%</em></span><span>距一年高 <em>${F(x.dd,0)}%</em></span><span>離季線 <em>${x.d60>0?"+":""}${F(x.d60,1)}%</em></span></div>
+   ${fundLine(x)}
+   <div class="tags">${(x.pts||[]).filter(p=>p[1]>0).map(p=>`<span class="tg">${(PT_FMT[p[0]]||(()=>p[0]))(p[2])} <em>+${F(p[1],1)}</em></span>`).join("")}</div>
+   ${dec?`<div class="btl">📊 模型檢驗期（2023～）同分數：20 日後上漲機率 <b class="${dec.win>=(aiD.base&&aiD.base.win||50)?"up":""}">${F(dec.win,0)}%</b>・平均 ${pct(dec.avg,1)}・漲 10% 以上 ${F(dec.up10,0)}%</div>`:""}</div>`;
+}
+function renderAI(){
+  setTB("數據精選",{left:icBtn("tbSearch","search"),right:icBtn("tbRef","ref")});
+  let h=`<div class="seg seg2" style="margin-top:10px">${CATS.map(([k,t])=>`<button data-aic="${k}" class="${AIC===k?"on":""}">${t}</button>`).join("")}</div>`;
+  if(!aiD){$("main").innerHTML=h+`<div class="empty">資料讀取中…<br><br><small>（雲端每天收盤後計算）</small></div>`;return}
+  const L=aiD.items.filter(x=>!AIC||catOf(x)===AIC),t5=aiD.top5||{},b=aiD.base||{};
+  h+=`<details class="btbox"><summary>📊 這個分數怎麼來的？準不準？</summary><div style="padding-top:6px;line-height:1.7">
+   用除權息還原後的 10 年股價，讓資料自己找出「哪些條件之後 20 個交易日比較會漲」：2017～2022 年用來學習，<b>2023 年以後的資料模型沒看過</b>，專門用來檢驗。<br>
+   檢驗結果：低檔區股票全部 20 日後上漲機率 ${F(b.win,1)}%、平均 ${pct(b.avg,1)}；<b>分數前 5%：上漲機率 ${F(t5.win,1)}%、平均 ${pct(t5.avg,1)}</b>、${F(t5.up10,0)}% 的機會漲超過 10%。<br>
+   資料找到的有效型態主要是<b>「跌深反彈」</b>：遠低於季線、季線下彎、近 60 日大跌、距一年高點很遠、近期波動大。這類股票<b>波動也大</b>，請一定要設停損。</div>
+   <table><tr><th>分數</th><th>次數</th><th>20日後上漲</th><th>平均報酬</th><th>漲10%以上</th></tr>${(aiD.dec||[]).filter(d=>d[1].n).map(d=>`<tr><td>${d[0]}～${d[0]+9}</td><td>${fmtC(d[1].n,0)}</td><td class="${d[1].win>=b.win?"up":""}">${F(d[1].win,1)}%</td><td>${pct(d[1].avg,1)}</td><td>${F(d[1].up10,0)}%</td></tr>`).join("")}</table>
+   <div class="foot" style="padding:6px 0 0">過去表現不代表未來；模型每週用最新資料重新校準。</div></details>`;
+  h+=`<div class="sec"><span>低檔區 ${fmtC(aiD.n,0)} 檔中分數最高・${L.length} 檔</span><span>資料到 ${esc(aiD.date)}</span></div>`;
+  h+=L.slice(0,100).map(aiCard).join("")||`<div class="empty">沒有符合的股票</div>`;
+  h+=`<div class="foot">左上角是數據分數（0～100，代表在低檔區股票中排第幾百分位）。標籤是加分最多的條件。<b style="color:#ffd27a">依公開資料以統計模型計算，僅供參考，不構成投資建議。</b></div>`;
   $("main").innerHTML=h;
 }
 function renderPick(){
@@ -1234,14 +1268,14 @@ async function openStock(c){
 let tab="home";
 function render(){
   document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.t===tab));
-  try{({home:renderHome,market:renderMarket,suggest:renderSuggest,rise:renderRise,pick:renderPick,watch:renderWatch,intl:renderIntl,more:renderMore}[tab]||renderHome)()}
+  try{({home:renderHome,market:renderMarket,suggest:renderSuggest,rise:renderRise,ai:renderAI,pick:renderPick,watch:renderWatch,intl:renderIntl,more:renderMore}[tab]||renderHome)()}
   catch(e){$("main").innerHTML=`<div class="empty">畫面發生錯誤，請截圖給開發者<br><br><small>${esc(tab)}：${esc(e.message)}</small></div>`}
 }
 function go(t){
   if(t==="add"){searchQ="";openOv("search");setTimeout(()=>$("sq")&&$("sq").focus(),80);return}
   if(t==="lowbase")t="pick";
   tab=t;$("main").scrollTop=0;render();
-  if(t==="watch"||t==="home"||t==="pick"||t==="suggest"||t==="rise"||t==="market")refreshRT();if(t==="home"||t==="market")refreshIntl();if(t==="intl")refreshIntl();
+  if(t==="watch"||t==="home"||t==="pick"||t==="suggest"||t==="rise"||t==="ai"||t==="market")refreshRT();if(t==="home"||t==="market")refreshIntl();if(t==="intl")refreshIntl();
 }
 $("nav").onclick=e=>{const b=e.target.closest("button");if(!b)return;if(b.dataset.t==="watch"&&(gSel==="h:"||(/^g:/.test(gSel)&&!curGroup()))){gSel="g:0";store.set("gSel",gSel)}go(b.dataset.t)};
 // 手機系統字體放大時，App 的字也會被放大；量出放大倍數後抵銷，讓字體大小以 App 設定為準
@@ -1267,6 +1301,9 @@ document.addEventListener("click",e=>{
   const rm=t.closest("[data-rm]");if(rm){const g=curGroup();g.codes=g.codes.filter(x=>x!==rm.dataset.rm);saveG();renderOv();return}
   const mv=t.closest("[data-mv]");if(mv){const g=curGroup(),i=+mv.dataset.mv,j=i+ +mv.dataset.d;if(j>=0&&j<g.codes.length){[g.codes[i],g.codes[j]]=[g.codes[j],g.codes[i]];saveG();renderOv()}return}
   const lf=t.closest("[data-lbf]");if(lf){const k=lf.dataset.lbf,v=lf.dataset.v;LBF[k]=["mkt","sort"].includes(k)?v:+v;store.set("lbF",LBF);const el=ovKind?$("ovBody"):$("main"),sc=el.scrollTop;ovKind?renderOv():render();el.scrollTop=sc;return}
+  const rss=t.closest("[data-rss]");if(rss){RSS=rss.dataset.rss;store.set("rsS",RSS);render();return}
+  const sgs=t.closest("[data-sgs]");if(sgs){SGS=sgs.dataset.sgs;store.set("sgS",SGS);render();return}
+  const ac=t.closest("[data-aic]");if(ac){AIC=ac.dataset.aic;store.set("aiC",AIC);render();return}
   const rs=t.closest("[data-rsc]");if(rs){RSC=rs.dataset.rsc;store.set("rsC",RSC);render();return}
   const sv=t.closest("[data-sgv]");if(sv){SGV=sv.dataset.sgv;sgPicked=true;store.set("sgV",SGV);render();return}
   const sgc=t.closest("[data-sgc]");if(sgc){SGC=sgc.dataset.sgc;store.set("sgC",SGC);render();return}
@@ -1328,6 +1365,7 @@ async function refreshRT(){
   const codes=tab==="watch"?(g?g.codes:gSel==="h:"?Object.keys(holds):presetCodes(gSel).slice(0,40)):
     tab==="pick"?(lb?(lb[LBV]||lb.all).slice(0,40).map(x=>x.c):[]):
     tab==="rise"?riseList().slice(0,60).map(z=>z[0].c):
+    tab==="ai"?(aiD?aiD.items.slice(0,60).map(x=>x.c):[]):
     tab==="suggest"?(()=>{const L=sugList();return (L[SGV]||L.s).slice(0,40).map(z=>z[0].c)})():
     groups[0].codes.slice(0,8).concat(lb?lb.sig.slice(0,5).map(x=>x.c):[]);
   const all=codes.concat(ovKind==="stock"?[ovArg]:[],alerts.filter(a=>a.on).map(a=>a.c),Object.keys(holds));
@@ -1339,7 +1377,7 @@ function schedule(){clearInterval(timer);timer=setInterval(()=>{
   if(document.hidden||!S.auto)return;
   if(tab==="intl"){if(isNightOpen()||isTrading()||iSel.startsWith("us"))refreshIntl();return}
   if(!isTrading()&&!(idx.tse&&!idx.tse.stale)&&(tab==="home"||tab==="watch"||tab==="market")&&Date.now()-(window._idxTry||0)>60000){window._idxTry=Date.now();refreshRT()}
-  if(isTrading()&&(tab==="watch"||tab==="home"||tab==="market"||tab==="pick"||tab==="suggest"||tab==="rise"||ovKind==="stock"||alerts.some(a=>a.on)))refreshRT();
+  if(isTrading()&&(tab==="watch"||tab==="home"||tab==="market"||tab==="pick"||tab==="suggest"||tab==="rise"||tab==="ai"||ovKind==="stock"||alerts.some(a=>a.on)))refreshRT();
   if(tab==="home"&&isNightOpen())loadFutures().then(()=>{if(tab==="home"&&!ovKind)rerender()});
 },S.int*1000)}
 async function boot(force){
@@ -1354,6 +1392,7 @@ async function boot(force){
     loadMops(force),
     loadFund(force).then(rerender),
     loadBT(force).then(rerender),
+    loadAI(force).then(()=>{if(tab==="ai")refreshRT();rerender()}),
     loadLowbase(force).then(()=>{if(tab==="pick"||tab==="home"||tab==="suggest"||tab==="rise")refreshRT();if(ovKind==="lowbase")renderOv();else rerender()}),
     loadDaily(false).then(()=>Promise.all([loadFlows(force),loadInsti(force)])).then(rerender)
   ]);

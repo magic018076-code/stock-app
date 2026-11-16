@@ -162,6 +162,13 @@ def trail_len(closes, pct):
     return cnt
 
 
+_IND = {}
+
+
+def fetch_ind_cached():
+    return _IND
+
+
 def fetch_industry():
     """上市、上櫃公司的產業別代碼（App 用來分科技股／傳產股／金融股）"""
     out = {}
@@ -176,6 +183,7 @@ def fetch_industry():
         if c and ic:
             out[c] = ic.zfill(2)
     print(f"產業別：{len(out)} 家", flush=True)
+    _IND.update(out)
     return out
 
 
@@ -333,14 +341,18 @@ def main():
     if not res:
         print("沒有資料"); sys.exit(1)
     os.makedirs("out", exist_ok=True)
-    with open(OUT, "w", encoding="utf-8") as f:
-        json.dump(res, f, ensure_ascii=False, separators=(",", ":"))
-    write_kfiles(h, rvh, fi, series)
     try:
         import backtest
         backtest.maybe_run(series, sorted(h["days"]), force=os.environ.get("FORCE_BT") == "1")
+        ai = backtest.score_today(series, sorted(h["days"]), fund, {x["c"]: x.get("ic", "") for x in res["items"]} | fetch_ind_cached())
+        for it in res["items"]:
+            if it["c"] in ai:
+                it["ai"] = ai[it["c"]]          # 數據分數（0～100 百分位）
     except Exception as e:
-        print("回測失敗（不影響其他資料）", e, flush=True)
+        print("回測／數據評分失敗（不影響其他資料）", e, flush=True)
+    with open(OUT, "w", encoding="utf-8") as f:
+        json.dump(res, f, ensure_ascii=False, separators=(",", ":"))
+    write_kfiles(h, rvh, fi, series)
     print(f"完成：{res['date']}，共 {res['days']} 個交易日，{len(res['items'])} 檔", flush=True)
 
 

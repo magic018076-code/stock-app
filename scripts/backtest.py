@@ -206,3 +206,64 @@ def maybe_run(series, dates, force=False):
     if old:
         os.makedirs("out", exist_ok=True)
         json.dump(old, open("out/bt.json", "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
+
+
+def score_today(series, dates, fund=None, ind=None, top=150):
+    """用回測校準好的模型（20 日），幫最新一個交易日全市場低檔區股票打分數。
+    回傳 {代號: 分數百分位}，並輸出 out/ai.json（分數最高的股票清單）。"""
+    import bisect, json
+    try:
+        bt = json.load(open("cache/bt.json", encoding="utf-8"))
+        m = bt.get("model")
+    except Exception:
+        m = None
+    if not m:
+        return {}
+    last = dates[-1]
+    feats = {f["k"]: f for f in m["feats"]}
+    out, rows = {}, []
+    for c, rs in series.items():
+        if c.startswith("00") or len(rs) < 260 or rs[-1][0] != last:
+            continue
+        C = [r[6] for r in rs]; Hh = [r[4] for r in rs]; L = [r[5] for r in rs]; V = [r[7] for r in rs]
+        px = C[-1]
+        m60 = sum(C[-60:]) / 60; m20 = sum(C[-20:]) / 20; m60p = sum(C[-65:-5]) / 60
+        hi250, lo250 = max(Hh[-250:]), min(L[-250:])
+        if hi250 <= lo250 or m60 <= 0:
+            continue
+        pos = (px - lo250) / (hi250 - lo250) * 100
+        v20 = sum(V[-21:-1]) / 20
+        if pos > 60 or v20 < 100:
+            continue
+        u60 = 0
+        for k in range(len(C) - 2, len(C) - 250, -1):
+            if C[k] < sum(C[k - 59:k + 1]) / 60:
+                u60 += 1
+            else:
+                break
+        x = {"d60": (px / m60 - 1) * 100, "slope": (m60 - m60p) / m60p * 100, "m20": 1.0 if px >= m20 else 0.0,
+             "ch": (px / C[-2] - 1) * 100, "vr": V[-1] / v20 if v20 else 0, "u60": u60, "pos": pos,
+             "r10": (px / C[-11] - 1) * 100, "r60": (px / C[-61] - 1) * 100, "dd": (px / hi250 - 1) * 100,
+             "rng42": (max(C[-42:]) / min(C[-42:]) - 1) * 100, "bo": 1.0 if px > max(C[-61:-1]) else 0.0,
+             "gap": abs(m20 - m60) / m60 * 100}
+        sc, pts = 0.0, []
+        for k, v in x.items():
+            f = feats.get(k)
+            if not f:
+                continue
+            p = f["p"][bisect.bisect_right(f["e"], v)]
+            sc += p
+            pts.append([f["name"], round(p, 2), round(v, 2)])
+        pr = max(0, min(100, bisect.bisect_right(m["q"], sc) - 1))
+        out[c] = pr
+        rows.append({"c": c, "n": rs[-1][1], "m": rs[-1][2], "px": round(px, 2), "ch": round(x["ch"], 2), "ai": pr,
+                     "raw": round(sc, 2), "ic": (ind or {}).get(c, ""), "pts": sorted(pts, key=lambda z: -z[1])[:6],
+                     "v20": round(v20), "pos": round(pos, 1), "d60": round(x["d60"], 1), "r60": round(x["r60"], 1), "dd": round(x["dd"], 1),
+                     **{k: v for k, v in ((fund or {}).get("s", {}).get(c, {})).items() if k in ("pe", "dy", "pb", "rvy", "fs", "ts")}})
+    rows.sort(key=lambda r: -r["raw"])
+    res = {"date": last, "model_test": m.get("test"), "dec": m.get("test_dec"), "base": m.get("test_base"),
+           "top5": m.get("test_top5"), "items": rows[:top], "n": len(rows)}
+    os.makedirs("out", exist_ok=True)
+    json.dump(res, open("out/ai.json", "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
+    print(f"數據評分：{len(rows)} 檔，精選前 {min(top, len(rows))} 檔", flush=True)
+    return out
