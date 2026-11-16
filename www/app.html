@@ -267,7 +267,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=26; // 介面版本，要和 ota.json 一致
+const UI_V=27; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:10,fs:"m"},store.get("settings",{}));
 if(S.int===20&&!S.intSet)S.int=10; // 舊預設 20 秒改成 10 秒（使用者自己選過的不動）
@@ -1105,7 +1105,12 @@ function renderOv(){
     B.innerHTML=Object.entries(names).map(([k,n])=>{const s=status[k];return `<div class="li"><div class="l">${n}${s&&!s.ok&&s.err?`<small style="color:#ff9b7a">${esc(s.err)}</small>`:""}</div><div class="r">${s?(s.ok?"✅ ":"⚠️ ")+s.t:"尚未更新"}</div></div>`}).join("");return;
   }
 }
-function renderStock(){
+// 個股頁出錯時不要整頁空白：顯示錯誤原因，並保留基本報價
+function renderStock(){try{renderStock0()}catch(e){
+  const c=ovArg;$("ovT").innerHTML=esc(nameOf(c))+` <span class="mute" style="font-size:1rem">${esc(c)}</span>`;
+  $("ovBody").innerHTML=`<div class="empty">這檔的畫面發生錯誤，請截圖給開發者<br><br><small>${esc(c)}：${esc(e&&e.message)}<br>${esc(String(e&&e.stack||"").split("\n").slice(1,3).join(" / "))}</small></div>`;
+  window.__lastErr=c+": "+(e&&e.message)}}
+function renderStock0(){
   const c=ovArg,q=quote(c),inf=(info.rows||{})[c],k=cls(q.ch),r=q.r,g=curGroup()||groups[0],inG=g.codes.includes(c);
   $("ovT").innerHTML=`${esc(q.n)} <span class="mute" style="font-size:1rem">${c}</span>`;
   $("ovR").innerHTML=`<button class="ic" id="stRef">${IC.ref}</button>`;$("stRef").onclick=()=>openStock(c);

@@ -179,6 +179,27 @@ function rec(name, ok, detail = "") { steps.push({ name, ok, detail }); console.
     await shot("資料狀態"); await back();
   });
 
+  // 大量打開個股頁：上市、上櫃、ETF、低檔股，各抽樣，記錄哪幾檔出錯
+  await step("個股頁大量測試", async () => {
+    const codes = await p.evaluate(() => {
+      const all = Object.keys(daily.rows || {}), pick = (a, n) => a.filter((_, i) => i % Math.max(1, Math.floor(a.length / n)) === 0).slice(0, n);
+      const L = all.filter(c => /^\d{4}$/.test(c) && daily.rows[c][1] === "上市"), O = all.filter(c => /^\d{4}$/.test(c) && daily.rows[c][1] === "上櫃"), E = all.filter(c => /^00/.test(c));
+      const B = (lowbase && lowbase.items || []).map(x => x.c);
+      return [...new Set([...pick(L, 60), ...pick(O, 60), ...pick(E, 30), ...pick(B, 30)])];
+    });
+    const bad = [];
+    for (const c of codes) {
+      const before = jsErr.length;
+      await p.evaluate(c => { window.__lastErr = ""; openStock(c) }, c); await wait(1800);
+      const r = await p.evaluate(() => ({ e: window.__lastErr, t: document.getElementById("ovBody").innerText.length, px: (document.querySelector(".big .px") || {}).innerText || "", k: document.querySelectorAll("#kc rect").length }));
+      const je = jsErr.slice(before).join(" / ");
+      if (r.e || je || r.t < 200 || !/\d/.test(r.px)) bad.push(`${c}（${r.e || je || (r.t < 200 ? "畫面太少" : "沒有價格")}）`);
+      await p.evaluate(() => closeOv());
+    }
+    rec("個股頁大量測試", bad.length === 0, `測 ${codes.length} 檔，有問題 ${bad.length} 檔：${bad.slice(0, 25).join("、")}`);
+    fs.writeFileSync(path.join(OUT, "stock-sweep.txt"), bad.join("\n"));
+  });
+
   await browser.close(); server.close();
 
   // 報告
