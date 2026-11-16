@@ -10,7 +10,7 @@ import json, os, time, datetime as dt
 
 TW = dt.timezone(dt.timedelta(hours=8))
 H = 20  # 看之後幾個交易日
-VER = 2  # 回測程式版本；改版時自動重跑
+VER = 3  # 回測程式版本；改版時自動重跑
 
 
 def frames(series, dates):
@@ -111,19 +111,22 @@ def run(series, dates):
         sug["buckets"].append([lab, lo, stats(RB[k], XB[k])])
 
     # ---------- 用資料校準評分（模型）：2017～2022 學習，2023 之後檢驗 ----------
-    model = None
+    model = model60 = None
     try:
         F = {"d60": (C / m60 - 1) * 100, "slope": slope, "m20": (C >= m20).astype(float), "ch": ch, "vr": vr,
              "u60": u60, "pos": pos, "r10": (C / C.shift(10) - 1) * 100, "r60": (C / C.shift(60) - 1) * 100,
              "dd": (C / hi250 - 1) * 100, "rng42": rng42 * 100, "bo": bo.astype(float), "gap": gap}
         model = fit_model(F, fwd, fmx, (pos <= 60) & (v20 >= 100) & valid, dates)
+        fwd60 = C.shift(-60) / C - 1
+        fmx60 = Hh[::-1].rolling(60, min_periods=60).max()[::-1].shift(-1) / C - 1
+        model60 = fit_model(F, fwd60, fmx60, (pos <= 60) & (v20 >= 100) & fwd60.notna() & C.notna(), dates)
     except Exception as e:
         import traceback
         traceback.print_exc()
         print("模型校準失敗", e, flush=True)
 
     out = {"asof": dates[-1], "from": dates[250] if len(dates) > 250 else dates[0], "days": H,
-           "base": base, "rise": rise, "sug": sug, "model": model, "ver": VER, "secs": round(time.time() - t0)}
+           "base": base, "rise": rise, "sug": sug, "model": model, "model60": model60, "ver": VER, "secs": round(time.time() - t0)}
     print(f"回測完成：{out['from']}～{out['asof']}，全市場 {base['n']} 筆，即將起漲候選 {rise['all']['n']} 筆，建議買進候選 {sug['all']['n']} 筆，{out['secs']} 秒", flush=True)
     return out
 
