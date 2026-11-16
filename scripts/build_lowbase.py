@@ -231,7 +231,7 @@ def agg(bars, key):
 
 
 def write_kfiles(h):
-    """每檔股票輸出一個 K 線檔（日 K 最近 130 天、週 K 最近 60 週、月 K 最近 120 個月），App 一次下載就能畫圖"""
+    """每檔股票輸出一個 K 線檔（日 K 最近 260 天、週 K 最近 156 週、月 K 最近 120 個月），App 一次下載就能畫圖"""
     dates = sorted(h["days"])
     series = {}
     for d in dates:
@@ -243,8 +243,8 @@ def write_kfiles(h):
     for c, bars in series.items():
         if c not in h["days"][dates[-1]]:
             continue  # 已下市或停牌太久
-        res = {"d": [pk(b) for b in bars[-130:]],
-               "w": [pk(b) for b in agg(bars[-60 * 5 - 25:], week_key)[-60:]],
+        res = {"d": [pk(b) for b in bars[-260:]],
+               "w": [pk(b) for b in agg(bars[-156 * 5 - 25:], week_key)[-156:]],
                "m": [pk(b) for b in agg(bars, lambda d: d[:7])[-120:]]}
         with open(f"out/k/{c}.json", "w") as f:
             json.dump(res, f, separators=(",", ":"))
