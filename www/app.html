@@ -267,7 +267,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=29; // 介面版本，要和 ota.json 一致
+const UI_V=30; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:10,fs:"m"},store.get("settings",{}));
 if(S.int===20&&!S.intSet)S.int=10; // 舊預設 20 秒改成 10 秒（使用者自己選過的不動）
@@ -611,30 +611,38 @@ let RSC=store.get("rsC","");
 // 今天到目前為止，成交時間佔全天（09:00～13:30）的比例，用來推估今天的量是平常的幾倍
 function dayFrac(){const t=tp(),m=t.getUTCHours()*60+t.getUTCMinutes()-540;return isTrading()?Math.max(0.08,Math.min(1,m/270)):1}
 function riseOf(x){
-  const r=rt[x.c],live=r&&!r.stale&&isFinite(r.z),px=live?r.z:x.px,ch=live&&isFinite(r.pct)?r.pct:x.ch,H=x.bhi-x.blo,L=x.len["20"]||0;
-  if(!(H>0)||x.pos>60||px<x.bhi*0.92||px>x.bhi*1.03)return null;
-  const gap=(x.bhi-px)/x.bhi*100,vr=live&&isFinite(r.v)&&x.v20?r.v/(x.v20*dayFrac()):(x.v120?x.v20/x.v120:0);
+  // 以季線（60 日均線）為準：只抓還在季線下、快要站上，或今天剛站上的股票
+  if(!(x.m60>0)||!(x.s59>0)||x.pos>60)return null;
+  const r=rt[x.c],live=r&&!r.stale&&isFinite(r.z),px=live?r.z:x.px,ch=live&&isFinite(r.pct)?r.pct:x.ch;
+  const m60=live?(x.s59+px)/60:x.m60;          // 盤中用即時價算今天的季線
+  const wasBelow=x.px<x.m60;                     // 最近一個收盤在季線下
+  const d60=(m60-px)/m60*100;                    // 正數＝還在季線下幾 %
+  const crossed=live&&wasBelow&&px>=m60;          // 今天盤中剛站上季線
+  if(!crossed&&(!wasBelow||d60<=0||d60>5))return null;  // 已在季線上（不是今天剛突破）或離太遠的不要
+  const slope=(x.m60-x.m60p)/x.m60p*100,L=x.len&&x.len["20"]||0;
+  const vr=live&&isFinite(r.v)&&x.v20?r.v/(x.v20*dayFrac()):(x.v120?x.v20/x.v120:0);
   const p=[],add=(n,s)=>{if(s>0)p.push([n,Math.round(s)])};
-  add(gap<=0?"今日突破上緣":"離上緣 "+F(gap,1)+"%",gap<=0?35:gap<=2?30:gap<=5?20:10);
+  add(crossed?"今天站上季線":"離季線 "+F(d60,1)+"%",crossed?35:d60<=1?30:d60<=2?25:d60<=3.5?18:10);
+  add(slope>=0?"季線翻揚":"季線走平",slope>=0?10:slope>-0.5?6:0);
+  add("季線下 "+x.u60+" 天",x.u60>=40?10:x.u60>=20?5:0);
   add((live?"今日量 ":"近月量 ")+F(vr,1)+" 倍",vr>=2?20:vr>=1.5?15:vr>=1.2?8:0);
   add("今日 "+(ch>0?"+":"")+F(ch,1)+"%",ch>=3?15:ch>=1?10:ch>0?5:0);
-  add("盤整 "+mon(L),L>=126?15:L>=63?10:L>=42?5:0);
-  add("均線糾結",x.gap<=2?10:x.gap<=3?5:0);
+  add("站上月線",x.m20>0&&px>=(live?x.m20+(px-x.px)/20:x.m20)?5:0);
   if(x.ts>=3)add("投信連買"+x.ts+"天",10);
   if(x.fs>=5)add("外資連買"+x.fs+"天",5);
-  return {sc:Math.min(100,p.reduce((a,b)=>a+b[1],0)),p,px,ch,gap,vr,live};
+  return {sc:Math.min(100,p.reduce((a,b)=>a+b[1],0)),p,px,ch,gap:crossed?0:d60,m60,crossed,slope,live};
 }
 function riseList(){
   if(!lowbase)return [];
-  return lowbase.items.filter(x=>!RSC||catOf(x)===RSC).map(x=>[x,riseOf(x)]).filter(z=>z[1]&&z[1].sc>=40).sort((a,b)=>b[1].sc-a[1].sc||a[1].gap-b[1].gap);
+  return lowbase.items.filter(x=>!RSC||catOf(x)===RSC).map(x=>[x,riseOf(x)]).filter(z=>z[1]&&z[1].sc>=30).sort((a,b)=>b[1].sc-a[1].sc||a[1].gap-b[1].gap);
 }
 function riseCard([x,v]){
   const k=v.ch>0?"up":v.ch<0?"down":"flat",ind=indOf(x),d=p=>F(p,pxD(p));
   const col=v.sc>=70?"#e8322a":v.sc>=55?"#ff7a1a":"#ffb020";
-  const prog=Math.max(0,Math.min(100,(v.px-x.blo)/(x.bhi-x.blo)*100));
+  const prog=Math.max(0,Math.min(100,100-v.gap/5*100)); // 季線下 5% 為 0，碰到季線為 100
   return `<div class="lc" data-code="${x.c}"><div class="r1"><span class="scb" style="background:${col}">${v.sc}°</span><b>${esc(x.n)}</b><span class="cd">${x.c}${ind?"・"+esc(ind):""}</span><span class="px ${k}">${d(v.px)}</span><span class="pc ${k}">${v.ch>0?"+":""}${F(v.ch,2)}%</span></div>
    <div class="rmeter"><i style="width:${prog}%"></i><s></s></div>
-   <div class="rngl"><span>區間低 ${d(x.blo)}</span><span class="${v.gap<=0?"up":""}">${v.gap<=0?"▲ 已突破上緣":"距離突破 "+F(v.gap,1)+"%"}</span><span>上緣 ${d(x.bhi)}</span></div>
+   <div class="rngl"><span>季線下 5%</span><span class="${v.crossed?"up":""}">${v.crossed?"▲ 今天站上季線":"距離季線 "+F(v.gap,1)+"%"}</span><span>季線 ${d(v.m60)}${v.slope>=0?" ↗":v.slope>-0.5?" →":" ↘"}</span></div>
    <div class="tags">${v.p.map(([n,s])=>`<span class="tg">${n} <em>+${s}</em></span>`).join("")}</div></div>`;
 }
 function renderRise(){
@@ -643,10 +651,11 @@ function renderRise(){
   let h=`<div class="seg seg2" style="margin-top:10px">${CATS.map(([k,t])=>`<button data-rsc="${k}" class="${RSC===k?"on":""}">${t}</button>`).join("")}</div>`;
   if(!lowbase){$("main").innerHTML=h+`<div class="empty">資料讀取中…</div>`;return}
   const live=isTrading();
-  h+=`<div class="sec"><span>${live?"● 盤中即時":"○ 非交易時間（依最近收盤）"}・${L.length} 檔${hot?"・🔥 "+hot+" 檔 70° 以上":""}</span><span>${rtInfo&&live?rtInfo.at:esc(lowbase.date)}</span></div>`;
-  h+=L.slice(0,80).map(riseCard).join("")||`<div class="empty">目前沒有接近突破的低檔股</div>`;
-  h+=`<div class="foot"><b>起漲溫度</b>（滿分 100°）：離盤整上緣越近越高（今日突破 35、2% 內 30、5% 內 20、8% 內 10）；今日量是平常的 2 倍以上 20、1.5 倍 15、1.2 倍 8（盤中依目前時間推估全天量）；今日漲 3% 以上 15、1% 以上 10、上漲 5；盤整半年以上 15、3 個月以上 10；均線糾結 5～10；投信連買 10、外資連買 5。<br>
-   進度條是現價在盤整區間的位置，到最右邊就是突破上緣。盤中每 ${S.int} 秒自動更新。<br><b style="color:#ffd27a">依公開資料以固定規則計算，僅供參考，不構成投資建議。</b></div>`;
+  h+=`<div class="sec"><span>${live?"● 盤中即時":"○ 非交易時間（依最近收盤）"}・準備突破季線 ${L.length} 檔${hot?"・🔥 "+hot+" 檔 70° 以上":""}</span><span>${rtInfo&&live?rtInfo.at:esc(lowbase.date)}</span></div>`;
+  h+=L.slice(0,80).map(riseCard).join("")||`<div class="empty">目前沒有準備突破季線的低檔股<br><br><small>（需要等今天 18:40 雲端算出季線資料）</small></div>`;
+  h+=`<div class="foot"><b>只列出還在季線（60 日均線）下方 5% 以內、準備站上季線的股票，以及今天盤中剛站上季線的股票</b>；已經在季線上面的不列入。<br>
+   <b>起漲溫度</b>（滿分 100°）：今天站上季線 35、離季線 1% 內 30、2% 內 25、3.5% 內 18、5% 內 10；季線翻揚 10、走平 6；在季線下超過 40 天 10、20 天 5（打底越久翻身越有力）；今日量是平常 2 倍以上 20、1.5 倍 15、1.2 倍 8（盤中依時間推估）；今日漲 3% 以上 15、1% 以上 10、上漲 5；站上月線 5；投信連買 10、外資連買 5。<br>
+   盤中的季線用即時價計算。進度條碰到最右邊白線＝站上季線；季線後的 ↗ → ↘ 是季線方向。盤中每 ${S.int} 秒自動更新。<br><b style="color:#ffd27a">依公開資料以固定規則計算，僅供參考，不構成投資建議。</b></div>`;
   $("main").innerHTML=h;
 }
 function renderPick(){

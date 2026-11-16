@@ -210,7 +210,16 @@ def compute(h, fund=None):
         ma20 = sum(cl[-20:]) / min(20, len(cl))
         ma60 = sum(cl[-60:]) / min(60, len(cl))
         prev = cl[-61:-1] if len(cl) > 60 else cl[:-1]
-        if lens["30"] < 63:  # 連最寬條件都不到 3 個月，App 不會用到，省流量
+        # 季線（60 日均線）相關：給「即將起漲」用
+        m60p = sum(cl[-65:-5]) / 60 if len(cl) >= 65 else ma60       # 5 天前的季線，看方向
+        u60 = 0                                                       # 收盤連續在季線下的天數（不含今天）
+        for k in range(len(cl) - 2, max(len(cl) - 250, 59), -1):
+            if cl[k] < sum(cl[k - 59:k + 1]) / 60:
+                u60 += 1
+            else:
+                break
+        near60 = len(cl) >= 65 and ma60 * 0.88 <= px <= ma60 * 1.02 and pos <= 60 and v20 >= 100
+        if lens["30"] < 63 and not near60:  # 不是低檔盤整、也不在季線附近，App 不會用到，省流量
             continue
         items.append({
             "c": c, "n": name, "m": mkt, "px": px,
@@ -223,6 +232,9 @@ def compute(h, fund=None):
             "gap": round(abs(ma20 - ma60) / ma60 * 100, 2) if ma60 else 0,  # 均線糾結程度
             "bo": 1 if prev and px > max(prev) else 0,    # 今天收盤突破前 60 日最高
             "nd": len(rs),
+            "m60": round(ma60, 2), "m60p": round(m60p, 2), "m20": round(ma20, 2),
+            "s59": round(sum(cl[-59:]), 2),                # 最近 59 天收盤合計：App 盤中用即時價算今天的季線
+            "u60": u60,
             "ic": ind.get(c, ""),                          # 產業別代碼
             **{k: v for k, v in ((fund or {}).get("s", {}).get(c, {})).items() if k in ("pe", "dy", "pb", "rvy", "rvm", "f5", "f20", "fs", "t5", "t20", "ts")},
         })
