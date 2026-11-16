@@ -112,6 +112,11 @@ def fetch_rev_latest(rev):
             if v is None:
                 continue
             rev.setdefault(ym, {})[c] = [v, n(pick(r, "上月比較", "LastMonthComparison")), n(pick(r, "去年同月增減", "LastYearMonthComparison"))]
+            # 順便記下「上個月營收」，歷史營收網站連不上時也至少有兩個月
+            pv = n(pick(r, "上月營收&營業收入", "LastMonthRevenue"))
+            pym = f"{int(ym[:4]) - (1 if ym[4:] == '01' else 0)}{(int(ym[4:]) - 2) % 12 + 1:02d}"
+            if pv is not None and c not in rev.get(pym, {}):
+                rev.setdefault(pym, {})[c] = [pv, None, None]
             got += 1
     print(f"最新月營收：{got} 筆", flush=True)
 

@@ -267,7 +267,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=28; // 介面版本，要和 ota.json 一致
+const UI_V=29; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:10,fs:"m"},store.get("settings",{}));
 if(S.int===20&&!S.intSet)S.int=10; // 舊預設 20 秒改成 10 秒（使用者自己選過的不動）
@@ -580,12 +580,13 @@ function sugOf(x){
 }
 function sugList(){
   if(!lowbase)return {s:[],b:[],w:[]};
-  const a=lowbase.items.filter(x=>(!SGC||catOf(x)===SGC)).map(x=>[x,sugOf(x)]).filter(([x,v])=>v&&v.rr>=1.5&&v.sc>=45).sort((a,b)=>b[1].sc-a[1].sc||b[1].rr-a[1].rr);
-  return {s:a.filter(z=>z[1].sc>=70),b:a.filter(z=>z[1].sc>=55&&z[1].sc<70),w:a.filter(z=>z[1].sc<55)};
+  const a=lowbase.items.filter(x=>(!SGC||catOf(x)===SGC)).map(x=>[x,sugOf(x)]).filter(([x,v])=>v&&v.rr>=1.5&&v.sc>=35).sort((a,b)=>b[1].sc-a[1].sc||b[1].rr-a[1].rr);
+  // 門檻依真實分數分布訂定：45 分以上約前 5%
+  return {s:a.filter(z=>z[1].sc>=45),b:a.filter(z=>z[1].sc>=40&&z[1].sc<45),w:a.filter(z=>z[1].sc<40)};
 }
 function sugCard([x,v]){
   const r=rt[x.c],lv=r&&!r.stale&&isFinite(r.pct),ch=lv?r.pct:x.ch,k=ch>0?"up":ch<0?"down":"flat",d=p=>F(p,pxD(p)),ind=indOf(x);
-  const col=v.sc>=70?"#e8322a":v.sc>=55?"#ffb020":"#7fb3ff";
+  const col=v.sc>=45?"#e8322a":v.sc>=40?"#ffb020":"#7fb3ff";
   return `<div class="lc sg" data-code="${x.c}"><div class="r1"><span class="scb" style="background:${col}">${v.sc}</span><b>${esc(x.n)}</b><span class="cd">${x.c}${ind?"・"+esc(ind):""}</span><span class="px ${k}">${d(v.px)}</span><span class="pc ${k}">${ch>0?"+":""}${F(ch,2)}%</span></div>
    <div class="sgg"><div><span>${v.type}${v.inZone?" ✔":""}</span><b>${d(v.e1)} ~ ${d(v.e2)}</b></div><div><span>停損</span><b class="down">${d(v.stop)}</b></div><div><span>目標</span><b class="up">${d(v.tgt)}</b></div><div><span>風報比</span><b>${F(v.rr,1)} 倍</b></div></div>
    <div class="tags">${v.p.map(([n,s])=>`<span class="tg">${n} <em>+${s}</em></span>`).join("")}</div></div>`;
@@ -596,7 +597,7 @@ function renderSuggest(){
   let h=`<div class="seg">${[["s","強烈建議"],["b","建議買進"],["w","觀察名單"]].map(([k,t])=>`<button data-sgv="${k}" class="${SGV===k?"on":""}">${t}<small>${lowbase?L[k].length:""}</small></button>`).join("")}</div>`;
   h+=`<div class="seg seg2">${CATS.map(([k,t])=>`<button data-sgc="${k}" class="${SGC===k?"on":""}">${t}</button>`).join("")}</div>`;
   if(!lowbase){$("main").innerHTML=h+`<div class="empty">資料讀取中…</div>`;return}
-  h+=`<div class="sec"><span>${SGV==="s"?"70 分以上":SGV==="b"?"55～69 分":"45～54 分"}・${cur.length} 檔</span><span>資料到 ${esc(lowbase.date)}</span></div>`;
+  h+=`<div class="sec"><span>${SGV==="s"?"45 分以上":SGV==="b"?"40～44 分":"35～39 分"}・${cur.length} 檔</span><span>資料到 ${esc(lowbase.date)}</span></div>`;
   h+=cur.slice(0,80).map(sugCard).join("")||`<div class="empty">目前沒有符合的股票<br><br>可以切換其他分級看看</div>`;
   h+=`<div class="foot"><b>怎麼看</b>：左上角是分數（滿分 100）。「突破追價」＝已突破或貼近盤整上緣，在上緣附近買、跌回區間就停損；「低檔布局」＝還在區間下半部，在下緣附近分批買、跌破下緣停損；「等回測再買」＝在區間中段，等拉回再買。✔ 代表現價已在買進區間內。<br>
    <b>目標價</b>＝盤整上緣再加一個區間高度（至少 +10%）。<b>風報比</b>＝可能賺的 ÷ 可能賠的，只列出 1.5 倍以上。<br>
