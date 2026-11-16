@@ -26,6 +26,12 @@
   // 上次用新介面啟動失敗 → 丟掉，改用內建
   if(cached&&ls.get("ota_booting")==="1"){ls.set("ota_bad",String(cv));ls.del("ota_html");ls.del("ota_v");cached=null;cv=0}
   async function bundled(){const r=await fetch("app.html");return r.text()}
+  // 下載網路上的檔案：手機上用原生連線（不受網頁跨站限制）；不加自訂標頭，避免觸發跨站預檢被拒
+  async function net(url){
+    try{const H=window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform()&&Capacitor.Plugins&&Capacitor.Plugins.CapacitorHttp;
+      if(H){const r=await H.request({url,method:"GET",responseType:"text",connectTimeout:15000,readTimeout:20000});if(r.status<200||r.status>=300)return null;return typeof r.data==="string"?r.data:JSON.stringify(r.data)}}catch(e){}
+    try{const r=await fetch(url,{cache:"no-store"});return r.ok?await r.text():null}catch(e){return null}
+  }
   async function bundledV(){try{const r=await fetch("ota.json");return (await r.json()).v||0}catch(e){return 0}}
   function show(html,isOta){
     window.__OTA_V=isOta?cv:null;
@@ -34,11 +40,10 @@
   }
   async function check(curV){
     try{
-      const r=await fetch(RAW+"ota.json?t="+Date.now(),{headers:{"Cache-Control":"no-cache"}});if(!r.ok)return;
-      let j=await r.json();if(typeof j==="string")j=JSON.parse(j);
+      const t=await net(RAW+"ota.json?t="+Date.now());if(!t)return;
+      let j=JSON.parse(t.trim());if(typeof j==="string")j=JSON.parse(j);
       const v=+j.v||0;if(v<=curV||String(v)===ls.get("ota_bad"))return;
-      const h=await fetch(RAW+"app.html?t="+Date.now(),{headers:{"Cache-Control":"no-cache"}});if(!h.ok)return;
-      const html=await h.text();
+      const html=await net(RAW+"app.html?t="+Date.now());if(!html)return;
       if(html.length<5000||html.indexOf("__appOK")<0)return; // 不完整的檔案不用
       if(!save("ota_html",html)){ls.del("ota_html");return} // 存不進去就不要提示「已更新」
       ls.set("ota_v",String(v));

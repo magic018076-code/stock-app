@@ -1058,8 +1058,7 @@ async function getMyVer(){try{if(window.Capacitor&&Capacitor.Plugins.App){const 
 async function checkUpdate(manual){
   await getMyVer();
   try{
-    const r=await fetch(REL+"version.json?_="+Date.now());if(!r.ok)throw new Error("HTTP "+r.status);
-    let j=await r.json();if(typeof j==="string")j=JSON.parse(j);remoteVer=j;
+    const j=await getJSON(REL+"version.json?_="+Date.now(),15000);remoteVer=j;
     const has=myVer.code&&j.versionCode>myVer.code;
     if($("verR"))$("verR").textContent=has?"有新版 "+j.versionName:"已是最新";
     if(has&&(manual||store.get("updSkip",0)!==j.versionCode)){$("updText").textContent=`App 有新版本 ${j.versionName}（需要重新安裝）`;$("updGo").textContent="下載";$("updGo").onclick=()=>{openUrl(REL+"stock-app.apk");toast("下載完成後點通知安裝")};$("updBar").classList.add("on")}
