@@ -10,6 +10,7 @@ import json, os, time, datetime as dt
 
 TW = dt.timezone(dt.timedelta(hours=8))
 H = 20  # 看之後幾個交易日
+VER = 2  # 回測程式版本；改版時自動重跑
 
 
 def frames(series, dates):
@@ -29,7 +30,7 @@ def frames(series, dates):
 
 def stats(ret, mx):
     import numpy as np
-    ok = ~np.isnan(ret)
+    ok = ~np.isnan(ret) & ~np.isnan(mx)
     ret, mx = ret[ok], mx[ok]
     if len(ret) == 0:
         return {"n": 0}
@@ -109,10 +110,75 @@ def run(series, dates):
         k = (SB >= lo) & (SB < hi)
         sug["buckets"].append([lab, lo, stats(RB[k], XB[k])])
 
+    # ---------- 用資料校準評分（模型）：2017～2022 學習，2023 之後檢驗 ----------
+    model = None
+    try:
+        F = {"d60": (C / m60 - 1) * 100, "slope": slope, "m20": (C >= m20).astype(float), "ch": ch, "vr": vr,
+             "u60": u60, "pos": pos, "r10": (C / C.shift(10) - 1) * 100, "r60": (C / C.shift(60) - 1) * 100,
+             "dd": (C / hi250 - 1) * 100, "rng42": rng42 * 100, "bo": bo.astype(float), "gap": gap}
+        model = fit_model(F, fwd, fmx, (pos <= 60) & (v20 >= 100) & valid, dates)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print("模型校準失敗", e, flush=True)
+
     out = {"asof": dates[-1], "from": dates[250] if len(dates) > 250 else dates[0], "days": H,
-           "base": base, "rise": rise, "sug": sug, "secs": round(time.time() - t0)}
+           "base": base, "rise": rise, "sug": sug, "model": model, "ver": VER, "secs": round(time.time() - t0)}
     print(f"回測完成：{out['from']}～{out['asof']}，全市場 {base['n']} 筆，即將起漲候選 {rise['all']['n']} 筆，建議買進候選 {sug['all']['n']} 筆，{out['secs']} 秒", flush=True)
     return out
+
+
+FEAT_NAME = {"d60": "離季線", "slope": "季線方向", "m20": "站上月線", "ch": "今日漲跌", "vr": "今日量／20日均量", "u60": "季線下天數",
+             "pos": "一年位置", "r10": "近10日漲跌", "r60": "近60日漲跌", "dd": "距一年高點", "rng42": "近2月振幅", "bo": "創60日新高", "gap": "月季線差距"}
+
+
+def fit_model(F, fwd, fmx, U, dates, split="2023-01-01"):
+    """把每個條件分成 5 段（是／否的條件分 2 段），看學習期間每段之後 20 天的平均報酬比整體高多少，當作那一段的分數；
+    總分＝各條件分數加總。再用沒參與學習的檢驗期間，看高分股票是不是真的比較好。"""
+    import numpy as np
+    mask = U.values
+    di = np.array(dates)
+    rows = np.where(mask)
+    tr = di[rows[0]] < split
+    y = fwd.values[mask]
+    ymx = fmx.values[mask]
+    ok = ~np.isnan(y)
+    X = {k: v.values[mask] for k, v in F.items()}
+    ytr = y[tr & ok]
+    mu = float(np.mean(ytr))
+    feats, score = [], np.zeros(len(y))
+    for k, x in X.items():
+        good = ~np.isnan(x)
+        xt = x[tr & ok & good]
+        uniq = np.unique(xt)
+        edges = [0.5] if len(uniq) <= 2 else sorted(set(np.round(np.quantile(xt, [0.2, 0.4, 0.6, 0.8]), 4).tolist()))
+        b = np.searchsorted(edges, x, side="right")
+        pts = []
+        for i in range(len(edges) + 1):
+            sel = tr & ok & good & (b == i)
+            nb = int(sel.sum())
+            d = (float(np.mean(y[sel])) - mu) * 100 if nb else 0.0
+            pts.append(round(d * nb / (nb + 5000), 3))   # 樣本少的段落分數打折，避免過度相信
+        score += np.where(good, np.array(pts)[b], 0)
+        feats.append({"k": k, "name": FEAT_NAME.get(k, k), "e": edges, "p": pts})
+    q = np.quantile(score[tr & ok], np.linspace(0, 1, 101)).round(4).tolist()
+    pr = np.searchsorted(q, score, side="right") - 1          # 分數→百分位（0～100）
+    te = (~tr) & ok
+    def st(sel):
+        r, m = y[sel], ymx[sel]
+        m = m[~np.isnan(m)]
+        return {"n": int(sel.sum()), "win": round(float((r > 0).mean() * 100), 1), "avg": round(float(r.mean() * 100), 2),
+                "med": round(float(np.median(r) * 100), 2), "mx": round(float(m.mean() * 100), 2) if len(m) else None,
+                "up10": round(float((m >= 0.10).mean() * 100), 1) if len(m) else None} if sel.sum() else {"n": 0}
+    dec = []
+    for lo in range(0, 100, 10):
+        dec.append([lo, st(te & (pr >= lo) & (pr < lo + 10))])
+    res = {"feats": feats, "q": q, "split": split, "train": [min(di[rows[0]][tr].tolist()), max(di[rows[0]][tr].tolist())],
+           "test": [min(di[rows[0]][~tr].tolist()), max(di[rows[0]][~tr].tolist())], "test_base": st(te), "test_dec": dec,
+           "test_top": st(te & (pr >= 90)), "test_top5": st(te & (pr >= 95)), "test_bot": st(te & (pr < 10))}
+    print("模型檢驗（2023 之後）：全部 上漲 %s%% 平均 %s%%｜前 10%% 上漲 %s%% 平均 %s%%｜後 10%% 上漲 %s%% 平均 %s%%" % (
+        res["test_base"]["win"], res["test_base"]["avg"], res["test_top"]["win"], res["test_top"]["avg"], res["test_bot"]["win"], res["test_bot"]["avg"]), flush=True)
+    return res
 
 
 def maybe_run(series, dates, force=False):
@@ -124,7 +190,7 @@ def maybe_run(series, dates, force=False):
             old = json.load(open(p, encoding="utf-8"))
         except Exception:
             old = None
-    stale = force or not old or (dt.date.fromisoformat(dates[-1]) - dt.date.fromisoformat(old["asof"])).days >= 7
+    stale = force or not old or old.get("ver") != VER or (dt.date.fromisoformat(dates[-1]) - dt.date.fromisoformat(old["asof"])).days >= 7
     if stale:
         try:
             old = run(series, dates)
