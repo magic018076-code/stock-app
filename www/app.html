@@ -223,13 +223,21 @@ const cls=c=>!isFinite(c)||c===0?"flat":c>0?"up":"down";
 const sg=c=>isFinite(c)&&c>0?"+":"";
 function toast(m){const t=$("toast");t.textContent=m;t.classList.add("on");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("on"),1800)}
 function withTO(p,ms){return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error("逾時")),ms))])}
-async function getJSON(url,ms=20000){const r=await withTO(fetch(url,{headers:{Accept:"application/json"}}),ms);if(!r.ok)throw new Error("HTTP "+r.status);let j=await r.json();if(typeof j==="string")j=JSON.parse(j.trim());return j}
-async function postJSON(url,body,ms=15000){const r=await withTO(fetch(url,{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify(body)}),ms);if(!r.ok)throw new Error("HTTP "+r.status);let j=await r.json();if(typeof j==="string")j=JSON.parse(j);return j}
+// 在手機上 App 是用 Android 原生連線，預設會用「Dalvik」當識別名稱，證交所防火牆可能擋掉，所以明確表明是手機瀏覽器
+const UA="Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36";
+function hdrs(url,extra){const h=Object.assign({Accept:"application/json, text/plain, */*","Accept-Language":"zh-TW,zh;q=0.9"},extra||{});
+  if(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform()){h["User-Agent"]=UA;
+    if(/mis\.twse\.com\.tw/.test(url))h.Referer="https://mis.twse.com.tw/stock/index.jsp";
+    else if(/twse\.com\.tw/.test(url))h.Referer="https://www.twse.com.tw/";
+    else if(/tpex\.org\.tw/.test(url))h.Referer="https://www.tpex.org.tw/";}
+  return h}
+async function getJSON(url,ms=20000){const r=await withTO(fetch(url,{headers:hdrs(url)}),ms);if(!r.ok)throw new Error("HTTP "+r.status);let j=await r.json();if(typeof j==="string")j=JSON.parse(j.trim());return j}
+async function postJSON(url,body,ms=15000){const r=await withTO(fetch(url,{method:"POST",headers:hdrs(url,{"Content-Type":"application/json"}),body:JSON.stringify(body)}),ms);if(!r.ok)throw new Error("HTTP "+r.status);let j=await r.json();if(typeof j==="string")j=JSON.parse(j);return j}
 function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacitor.Plugins.Browser.open({url:u});return}}catch(e){}window.open(u,"_blank")}
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=18; // 介面版本，要和 ota.json 一致
+const UI_V=19; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:10,fs:"m"},store.get("settings",{}));
 if(S.int===20&&!S.intSet)S.int=10; // 舊預設 20 秒改成 10 秒（使用者自己選過的不動）
@@ -269,7 +277,7 @@ async function loadDaily(force){
     const out={},ok=x=>/^\d{4}$/.test(x)||/^00\d{2,4}[A-Z]?$/.test(x);let date="";
     if(l.status==="fulfilled")for(const r of l.value){const c=String(r.Code).trim();if(!ok(c))continue;date=r.Date||date;out[c]=[r.Name.trim(),"上市",num(r.ClosingPrice),num(r.Change),num(r.OpeningPrice),num(r.HighestPrice),num(r.LowestPrice),num(r.TradeVolume)/1000,num(r.TradeValue)]}
     if(o.status==="fulfilled")for(const r of o.value){const c=String(r.SecuritiesCompanyCode).trim();if(!ok(c))continue;date=r.Date||date;out[c]=[String(r.CompanyName).trim(),"上櫃",num(r.Close),num(r.Change),num(r.Open),num(r.High),num(r.Low),num(r.TradingShares)/1000,num(r.TransactionAmount)]}
-    if(!Object.keys(out).length)throw new Error("no data");
+    if(!Object.keys(out).length)throw new Error([l,o].map(x=>x.status==="rejected"?(x.reason&&x.reason.message||"失敗"):"無資料").join("／"));
     return {date:rocDate(date),rows:out};
   },force);
 }
@@ -279,7 +287,7 @@ async function loadInfo(force){
     const out={};let nl=0,no=0;
     if(l.status==="fulfilled")for(const r of l.value){const c=String(r["公司代號"]).trim();nl++;out[c]=["上市",indName(r["產業別"]),rocDate(r["上市日期"]),r["公司名稱"],r["董事長"],num(r["實收資本額"]),(r["網址"]||"").trim(),r["公司簡稱"]]}
     if(o.status==="fulfilled")for(const r of o.value){const c=String(r.SecuritiesCompanyCode).trim();no++;out[c]=["上櫃",indName(r.SecuritiesIndustryCode),rocDate(r.DateOfListing),r.CompanyName,r.Chairman,num(r["Paidin.Capital.NTDollars"]),(r.WebAddress||"").trim(),r.CompanyAbbreviation]}
-    if(!nl&&!no)throw new Error("no data");
+    if(!nl&&!no)throw new Error([l,o].map(x=>x.status==="rejected"?(x.reason&&x.reason.message||"失敗"):"無資料").join("／"));
     return {rows:out,nl:l.status==="fulfilled"?nl:null,no:o.status==="fulfilled"?no:null};
   },force);
   const h=store.get("otcHist",{});if(info.no){h[today()]=info.no;store.set("otcHist",h)}
@@ -301,6 +309,9 @@ async function loadMops(force){
   },force);
 }
 let exMap=store.get("exMap",{}),rtInfo=null;
+// 連線失敗時在畫面上直接顯示原因（方便截圖回報）
+function errLine(){const bad=[["rt","即時報價"],["daily","收盤行情"],["info","公司資料"]].filter(([k])=>status[k]&&!status[k].ok);
+  return bad.length?`<div class="foot" style="color:#ff9b7a;border-bottom:1px solid var(--line)">⚠️ 連線失敗：${bad.map(([k,n])=>n+"（"+esc(status[k].err||"")+"）").join("；")}</div>`:""}
 const rtTag=()=>rtInfo?`即時 ${rtInfo.at}・連線 ${(rtInfo.ms/1000).toFixed(1)} 秒`:"";
 const exOf=c=>{const m=(info.rows&&info.rows[c]&&info.rows[c][0])||(daily.rows&&daily.rows[c]&&daily.rows[c][1]);if(m)return m==="上櫃"?"otc":"tse";const x=lbItem(c);if(x)return x.m==="O"?"otc":"tse";return exMap[c]||""};
 const split=s=>String(s||"").split("_").filter(x=>x!=="").map(num);
@@ -699,6 +710,7 @@ function renderHome(){
   const box=(n,q,d)=>{const k=q?cls(q.ch):"";return `<div data-tile="index"><span>${n}</span><b class="${k}">${q?F(q.z??q.px,d):"—"}</b><small class="${k}">${q&&isFinite(q.ch)?sg(q.ch)+F(q.ch,d)+"　"+F(Math.abs(q.pct),2)+"%":"&nbsp;"}</small></div>`};
   const sigN=lowbase?lbView().sig.length:0;
   let h=`<div class="mstrip">${box("加權指",t,2)+box("櫃買指",o,2)+box("台指近",dn,0)}</div>`+(rtInfo?`<div class="rtline">${isTrading()?"●":"○"} ${rtTag()}${isTrading()?"・每 "+S.int+" 秒更新":"・非交易時間"}</div>`:"");
+  h+=errLine();
   h+=`<div class="grid">${TILES.map(([k,n])=>`<button data-tile="${k}"><svg viewBox="0 0 64 64">${GI[k]}</svg><span>${n}</span>${k==="pick"&&sigN?`<em>${sigN}</em>`:k==="alerts"&&alerts.some(a=>a.on)?`<em>${alerts.filter(a=>a.on).length}</em>`:""}</button>`).join("")}</div>`;
   h+=`<div class="foot" style="text-align:center">版本 ${esc(myVer.name)}・介面 ${window.__OTA_V||UI_V}・資料僅供參考，不構成投資建議</div>`;
   $("main").innerHTML=`<svg width="0" height="0" style="position:absolute">${GDEF}</svg>`+h;
@@ -780,7 +792,7 @@ function renderWatch(){
    h+=(t?row({n:"加權指",px:t.z,ch:t.ch,pct:t.pct,d:2,attr:'data-tile="index"'}):"")+(dn?row({n:"台指近",px:dn.px,ch:dn.ch,pct:dn.pct,d:0,cd:0,attr:'data-intl="day"'}):"");}
   h+=sortCodes(codes).map(stockRow).join("")||`<div class="empty">${g?"這個群組還沒有股票<br><br>按下方「加入自選」新增":"讀取中…"}</div>`;
   const live=codes.some(c=>rt[c]&&!rt[c].stale);
-  h+=`<div class="foot">${live?rtTag():daily.date?"收盤價 "+daily.date:""}${gSel==="p:low"?"・條件：盤整 "+mon(LBF.per)+"以上、振幅 "+LBF.amp+"%、"+(LBF.pos>=100?"位置不限":"一年位置 ≤"+LBF.pos+"%")+"（可在「低檔選股」調整）":!g?"・排行依前一交易日收盤":""}<br>點表頭「成交／漲跌／幅度」排序；點標題切換清單；右上角 ✎ 編輯清單。<br>名稱下方條狀：綠＝委賣量、紅＝委買量。</div>`;
+  h+=errLine()+`<div class="foot">${live?rtTag():daily.date?"收盤價 "+daily.date:""}${gSel==="p:low"?"・條件：盤整 "+mon(LBF.per)+"以上、振幅 "+LBF.amp+"%、"+(LBF.pos>=100?"位置不限":"一年位置 ≤"+LBF.pos+"%")+"（可在「低檔選股」調整）":!g?"・排行依前一交易日收盤":""}<br>點表頭「成交／漲跌／幅度」排序；點標題切換清單；右上角 ✎ 編輯清單。<br>名稱下方條狀：綠＝委賣量、紅＝委買量。</div>`;
   $("main").innerHTML=h;
 }
 
