@@ -227,12 +227,15 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=15; // 介面版本，要和 ota.json 一致
+const UI_V=16; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:10,fs:"m"},store.get("settings",{}));
 if(S.int===20&&!S.intSet)S.int=10; // 舊預設 20 秒改成 10 秒（使用者自己選過的不動）
 let groups=store.get("groups",null);
-if(!groups){groups=[{name:"自選股",codes:store.get("watch",["2330","2317","2454","3008"])}]}
+// 檢查自選清單格式（舊版資料可能不同），壞掉的修好
+if(Array.isArray(groups))groups=groups.filter(g=>g&&typeof g==="object").map(g=>({name:String(g.name||"自選股"),codes:(Array.isArray(g.codes)?g.codes:Array.isArray(g.list)?g.list:[]).map(String).filter(c=>/^\w{4,6}$/.test(c))}));
+if(!Array.isArray(groups)||!groups.length){const w=store.get("watch",null);groups=[{name:"自選股",codes:Array.isArray(w)&&w.length?w.map(String):["2330","2317","2454","3008"]}]}
+store.set("groups",groups);
 let gSel=store.get("gSel","g:0"),iSel=store.get("iSel","us"),sortSt={k:"",d:0};
 let daily={},info={},rt={},news=[],mops=[],idx={tse:null,otc:null},fut={day:[],night:[]},us=[],status=store.get("status",{});
 // 打開 App 先顯示上次的報價（標示為非即時），連上後馬上換成即時
@@ -773,7 +776,7 @@ function renderWatch(){
   let h=head(true);
   {const t=tseIdx(),dn=fut.day.find(x=>!x.spot&&/^TXF/.test(x.id));
    h+=(t?row({n:"加權指",px:t.z,ch:t.ch,pct:t.pct,d:2,attr:'data-tile="index"'}):"")+(dn?row({n:"台指近",px:dn.px,ch:dn.ch,pct:dn.pct,d:0,cd:0,attr:'data-intl="day"'}):"");}
-  h+=sortCodes(codes).map(stockRow).join("")||`<div class="empty">${g?"這個群組還沒有股票<br><br>按右上角 ＋ 新增":"讀取中…"}</div>`;
+  h+=sortCodes(codes).map(stockRow).join("")||`<div class="empty">${g?"這個群組還沒有股票<br><br>按下方「加入自選」新增":"讀取中…"}</div>`;
   const live=codes.some(c=>rt[c]&&!rt[c].stale);
   h+=`<div class="foot">${live?rtTag():daily.date?"收盤價 "+daily.date:""}${gSel==="p:low"?"・條件：盤整 "+mon(LBF.per)+"以上、振幅 "+LBF.amp+"%、"+(LBF.pos>=100?"位置不限":"一年位置 ≤"+LBF.pos+"%")+"（可在「低檔選股」調整）":!g?"・排行依前一交易日收盤":""}<br>點表頭「成交／漲跌／幅度」排序；點標題切換清單；右上角 ✎ 編輯清單。<br>名稱下方條狀：綠＝委賣量、紅＝委買量。</div>`;
   $("main").innerHTML=h;
@@ -974,7 +977,8 @@ async function openStock(c){
 let tab="home";
 function render(){
   document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.t===tab));
-  ({home:renderHome,market:renderMarket,pick:renderPick,watch:renderWatch,intl:renderIntl,more:renderMore}[tab]||renderHome)();
+  try{({home:renderHome,market:renderMarket,pick:renderPick,watch:renderWatch,intl:renderIntl,more:renderMore}[tab]||renderHome)()}
+  catch(e){$("main").innerHTML=`<div class="empty">畫面發生錯誤，請截圖給開發者<br><br><small>${esc(tab)}：${esc(e.message)}</small></div>`}
 }
 function go(t){
   if(t==="add"){searchQ="";openOv("search");setTimeout(()=>$("sq")&&$("sq").focus(),80);return}
@@ -982,7 +986,7 @@ function go(t){
   tab=t;$("main").scrollTop=0;render();
   if(t==="watch"||t==="home"||t==="pick"||t==="market")refreshRT();if(t==="home"||t==="market")refreshIntl();if(t==="intl")refreshIntl();
 }
-$("nav").onclick=e=>{const b=e.target.closest("button");if(b)go(b.dataset.t)};
+$("nav").onclick=e=>{const b=e.target.closest("button");if(!b)return;if(b.dataset.t==="watch"&&(gSel==="h:"||(/^g:/.test(gSel)&&!curGroup()))){gSel="g:0";store.set("gSel",gSel)}go(b.dataset.t)};
 // 手機系統字體放大時，App 的字也會被放大；量出放大倍數後抵銷，讓字體大小以 App 設定為準
 let fontK=1;
 function measureFontK(){try{const d=document.createElement("span");d.style.cssText="position:absolute;visibility:hidden;font-size:100px;line-height:1;white-space:nowrap";d.textContent="股股股股股股股股股股";document.body.appendChild(d);const w=d.getBoundingClientRect().width;d.remove();const k=w/1000;fontK=k>1.05&&k<4?k:1}catch(e){fontK=1}}
