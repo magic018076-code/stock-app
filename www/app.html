@@ -156,9 +156,10 @@ input[type=search],input[type=text]{flex:1;background:#1b1d22;border:1px solid #
 .sheet .ttl{padding:12px 18px;font-size:.85rem;color:var(--acc);background:#15171b;border-bottom:1px solid var(--line)}
 .lc{padding:9px 12px 8px;border-bottom:1px solid var(--line)}
 .lc:active{background:#14161a}
-.lc .r1{display:flex;align-items:baseline;gap:8px}
-.lc .r1 b{font-size:calc(var(--fs)*1.02);font-weight:500}
-.lc .r1 .cd{color:var(--mute);font-size:.8rem}
+.lc .r1{display:flex;align-items:baseline;gap:8px;min-width:0}
+.lc .r1 b{font-size:calc(var(--fs)*1.02);font-weight:500;white-space:nowrap;flex:none}
+.lc .r1 .cd{color:var(--mute);font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+.lc .r1 .scb,.lc .r1 .aib,.lc .r1 .stars,.lc .r1 .px,.lc .r1 .pc{flex:none}
 .lc .r1 .px{margin-left:auto;font-size:calc(var(--fs)*1.02);font-variant-numeric:tabular-nums;font-weight:500}
 .lc .r1 .pc{width:70px;text-align:right;font-variant-numeric:tabular-nums;font-size:.95rem}
 .lc .r2{display:flex;gap:12px;font-size:.8rem;color:var(--mute);margin-top:5px;font-variant-numeric:tabular-nums}
@@ -181,6 +182,12 @@ nav button.pk svg{stroke:var(--acc)}
 .btl{font-size:.74rem;color:var(--mute);margin-top:6px}.btl b{font-weight:600}
 .btbox{margin:8px 12px;border:1px solid #333;border-radius:8px;padding:8px 10px;font-size:.8rem;background:#0e0f12}.btbox summary{color:var(--acc);cursor:pointer}.btbox table{width:100%;border-collapse:collapse;margin-top:8px;font-variant-numeric:tabular-nums}.btbox td,.btbox th{padding:4px 2px;text-align:right;border-bottom:1px solid #222;font-weight:400}.btbox td:first-child,.btbox th:first-child{text-align:left}.btbox th{color:var(--mute);font-size:.72rem}
 .aib{display:inline-block;border:1px solid;border-radius:5px;padding:0 5px;font-size:.72rem;margin-left:4px;white-space:nowrap}
+.jump{position:sticky;top:0;z-index:3;display:flex;gap:4px;padding:6px 8px;background:#0b0c0f;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}.jump::-webkit-scrollbar{display:none}.jump button{flex:none;padding:4px 11px;border-radius:14px;background:#1d2025;color:#ccc;font-size:.8rem}
+.chips{display:flex;gap:6px;padding:10px 12px 8px;overflow-x:auto;scrollbar-width:none;align-items:center}.chips::-webkit-scrollbar{display:none}
+.chips button{flex:none;border:1px solid #3a3d44;border-radius:16px;padding:5px 12px;font-size:.84rem;color:#ccc;white-space:nowrap}
+.chips button.on{background:#3a2d0a;border-color:var(--acc);color:var(--acc)}.chips i{flex:none;width:1px;height:18px;background:#444;margin:0 2px}
+.chips button.srt.on{background:#10304a;border-color:#3ba7ff;color:#9fd2ff}
+.btl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .scb{display:inline-grid;place-items:center;min-width:34px;height:24px;border-radius:6px;color:#fff;font-weight:700;font-size:.9rem;margin-right:2px}
 .sgg{display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;gap:4px;margin-top:8px;background:#111317;border-radius:8px;padding:6px 8px}
 .sgg div{display:flex;flex-direction:column;min-width:0}.sgg span{font-size:.7rem;color:var(--mute);white-space:nowrap}.sgg b{font-size:.9rem;font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -276,7 +283,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=35; // 介面版本，要和 ota.json 一致
+const UI_V=36; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:10,fs:"m"},store.get("settings",{}));
 if(S.int===20&&!S.intSet)S.int=10; // 舊預設 20 秒改成 10 秒（使用者自己選過的不動）
@@ -498,8 +505,12 @@ async function loadBT(force){bt=await cached("bt",12,async()=>{const j=await get
 // 回測只有技術面，對照時扣掉法人、營收、本益比等加分
 const techSc=p=>p.filter(([n])=>!/^(投信|外資|營收|殖利率|本益比|淨值比)/.test(n)).reduce((a,b)=>a+b[1],0);
 const btB=(kind,sc)=>{const b=bt&&bt[kind]&&bt[kind].buckets;if(!b)return null;let r=null;for(const x of b)if(sc>=x[1])r=x;return r&&r[2]&&r[2].n>=30?r[2]:null};
+// 營收年增率太大（去年基期太低）時顯示 >999%
+const yoyT=v=>v>999?">999%":v<-99.9?"-100%":Math.round(v)+"%";
+// 標籤只顯示加分最多的 4 個，其他收成「+N」
+function topTags(p){const a=p.slice().sort((x,y)=>(+y[1])-(+x[1])),sh=a.slice(0,4),more=a.length-sh.length;return `<div class="tags">${sh.map(([n,s])=>`<span class="tg">${n} <em>+${s}</em></span>`).join("")}${more>0?`<span class="tg">+${more}</span>`:""}</div>`}
 const pct=(v,sg)=>typeof v==="number"?(sg&&v>0?"+":"")+F(v,1)+"%":"—";
-function btLine(kind,sc){const s=btB(kind,sc);return s?`<div class="btl">📊 過去 10 年同樣技術面分數（${sc}）：${bt.days} 日後上漲機率 <b class="${s.win>=(bt.base.win||50)?"up":""}">${F(s.win,0)}%</b>・平均 ${pct(s.avg,1)}・期間最高平均 ${pct(s.mx,1)}</div>`:""}
+function btLine(kind,sc){const s=btB(kind,sc);return s?`<div class="btl">📊 10 年歷史同分：${bt.days}日後上漲 <b class="${s.win>=(bt.base.win||50)?"up":""}">${F(s.win,0)}%</b>・平均 ${pct(s.avg,1)}・最高 ${pct(s.mx,1)}</div>`:""}
 function btBox(kind,title){
   if(!bt||!bt[kind])return "";const B=bt.base,rows=bt[kind].buckets.filter(b=>b[2]&&b[2].n);
   return `<details class="btbox"><summary>📊 ${title}：歷史回測（${esc(bt.from.slice(0,7))}～${esc(bt.asof.slice(0,7))}）</summary>
@@ -537,7 +548,7 @@ function lbSig(x){
   if(x.gap<=2){t.push(["均線糾結","blu"]);s+=1}
   if(x.ts>=3){t.push(["投信連買"+x.ts+"天","hot"]);s+=1}
   if(x.fs>=5){t.push(["外資連買"+x.fs+"天","hot"]);s+=1}
-  if(x.rvy>=20){t.push(["營收年增"+Math.round(x.rvy)+"%","acc"]);s+=1}
+  if(x.rvy>=20){t.push(["營收年增"+yoyT(x.rvy),"acc"]);s+=1}
   if(x.pos<=10)t.push(["一年最低區",""]);
   return x._sig={s,t};
 }
@@ -565,7 +576,7 @@ const LBM=[
  ["sort","排序",[["sig","訊號最強"],["ai","數據分數"],["len","盤整最久"],["amp","區間最窄"],["pos","位置最低"],["vol","量縮最多"]]]];
 const LBSHORT={per:"盤整",amp:"振幅",pos:"位置",dd:"距高點",vol:"均量",mkt:"市場",fx:"基本面",sort:"排序"};
 function fxOK(x,k){switch(k||""){case "dy4":return x.dy>=4;case "pe15":return x.pe>0&&x.pe<=15;case "pb1":return x.pb>0&&x.pb<=1;case "rv0":return x.rvy>0;case "rv20":return x.rvy>=20;case "t3":return x.ts>=3;case "f5":return x.fs>=5;default:return true}}
-function fundLine(x){const a=[];if(x.pe>0)a.push("本益比 "+F(x.pe,1));if(x.dy>0)a.push("殖利率 "+F(x.dy,1)+"%");if(x.pb>0)a.push("淨值比 "+F(x.pb,2));if(typeof x.rvy==="number")a.push(`營收年增 <b class="${cls(x.rvy)}">${x.rvy>0?"+":""}${F(x.rvy,0)}%</b>`);return a.length?`<div class="r2" style="margin-top:4px;flex-wrap:wrap">${a.map(z=>"<span>"+z+"</span>").join("")}</div>`:""}
+function fundLine(x){const a=[];if(x.pe>0)a.push("本益比 "+F(x.pe,1));if(x.dy>0)a.push("殖利率 "+F(x.dy,1)+"%");if(x.pb>0)a.push("淨值比 "+F(x.pb,2));if(typeof x.rvy==="number")a.push(`營收年增 <b class="${cls(x.rvy)}">${x.rvy>0?"+":""}${yoyT(x.rvy)}</b>`);return a.length?`<div class="r2" style="margin-top:4px;flex-wrap:wrap">${a.map(z=>"<span>"+z+"</span>").join("")}</div>`:""}
 function lbMenuBar(){
   return `<div class="fbar">${LBM.map(([k,t,os])=>{const o=os.find(x=>String(x[0])===String(LBF[k]))||os[0];return `<button data-lbm="${k}"><span>${LBSHORT[k]}</span><b>${o[1].replace(" 以內","")}</b><i>▾</i></button>`}).join("")}<button data-lbreset="1" class="rs"><b>重設</b></button></div>`;
 }
@@ -576,7 +587,8 @@ const lbSum=()=>`盤整 ${mon(LBF.per)}以上・振幅 ${LBF.amp}%・${LBF.pos>=
 const tick=p=>p<10?0.01:p<50?0.05:p<100?0.1:p<500?0.5:p<1000?1:5;
 const rTick=(p,up)=>{const t=tick(p);return +(Math[up?"ceil":"floor"](p/t-1e-9)*t).toFixed(2)};
 let SGV=store.get("sgV","s"),SGC=store.get("sgC",""),SGS=store.get("sgS",""),sgPicked=false;
-const sortSeg=(key,cur,lab)=>`<div class="seg seg2">${[["",lab],["ai","依數據分數"]].map(([k,t])=>`<button data-${key}="${k}" class="${cur===k?"on":""}">${t}</button>`).join("")}</div>`;
+// 類別＋排序合併成一排可左右滑的小按鈕
+const chips=(catKey,cat,sortKey,sort,lab)=>`<div class="chips">${sortKey?`<button data-${sortKey}="${sort==="ai"?"":"ai"}" class="srt on">⇅ ${sort==="ai"?"數據分數":lab}</button><i></i>`:""}${CATS.map(([k,t])=>`<button data-${catKey}="${k}" class="${(cat||"")===k?"on":""}">${t}</button>`).join("")}</div>`;
 function sugOf(x){
   if(x._sg&&x._sg.at===(rt[x.c]&&rt[x.c].t))return x._sg.v;
   const r=rt[x.c],px=r&&!r.stale&&isFinite(r.z)?r.z:x.px,H=x.bhi-x.blo,L=x.len["20"]||0;let v=null;
@@ -589,7 +601,7 @@ function sugOf(x){
     if(x.gap<=2)add("均線糾結",5);
     if(x.ts>=3)add("投信連買"+x.ts+"天",10);
     if(x.fs>=5)add("外資連買"+x.fs+"天",8);
-    if(x.rvy>=20)add("營收年增"+Math.round(x.rvy)+"%",10);else if(x.rvy>0)add("營收年增"+Math.round(x.rvy)+"%",5);
+    if(x.rvy>=20)add("營收年增"+yoyT(x.rvy),10);else if(x.rvy>0)add("營收年增"+yoyT(x.rvy),5);
     if(x.dy>=4)add("殖利率"+F(x.dy,1)+"%",5);
     if(x.pe>0&&x.pe<=15)add("本益比"+F(x.pe,1),5);
     if(x.pb>0&&x.pb<=1)add("淨值比"+F(x.pb,2),2);
@@ -615,13 +627,13 @@ function sugCard([x,v]){
   const col=v.sc>=45?"#e8322a":v.sc>=40?"#ffb020":"#7fb3ff";
   return `<div class="lc sg" data-code="${x.c}"><div class="r1"><span class="scb" style="background:${col}">${v.sc}</span><b>${esc(x.n)}</b><span class="cd">${x.c}${ind?"・"+esc(ind):""}</span>${aiBadge(x.ai)}<span class="px ${k}">${d(v.px)}</span><span class="pc ${k}">${ch>0?"+":""}${F(ch,2)}%</span></div>
    <div class="sgg"><div><span>${v.type}${v.inZone?" ✔":""}</span><b>${d(v.e1)} ~ ${d(v.e2)}</b></div><div><span>停損</span><b class="down">${d(v.stop)}</b></div><div><span>目標</span><b class="up">${d(v.tgt)}</b></div><div><span>風報比</span><b>${F(v.rr,1)} 倍</b></div></div>
-   <div class="tags">${v.p.map(([n,s])=>`<span class="tg">${n} <em>+${s}</em></span>`).join("")}</div>${btLine("sug",techSc(v.p))}</div>`;
+   ${topTags(v.p)}${btLine("sug",techSc(v.p))}</div>`;
 }
 function renderSuggest(){
   setTB("建議買進",{left:icBtn("tbSearch","search"),right:icBtn("tbRef","ref")});
   const L=sugList();if(!sgPicked&&lowbase&&!L[SGV].length)SGV=["s","b","w"].find(k=>L[k].length)||SGV;const cur=L[SGV]||L.s;
   let h=`<div class="seg">${[["s","強烈建議"],["b","建議買進"],["w","觀察名單"]].map(([k,t])=>`<button data-sgv="${k}" class="${SGV===k?"on":""}">${t}<small>${lowbase?L[k].length:""}</small></button>`).join("")}</div>`;
-  h+=`<div class="seg seg2">${CATS.map(([k,t])=>`<button data-sgc="${k}" class="${SGC===k?"on":""}">${t}</button>`).join("")}</div>`+sortSeg("sgs",SGS,"依原評分");
+  h+=chips("sgc",SGC,"sgs",SGS,"原評分");
   if(!lowbase){$("main").innerHTML=h+`<div class="empty">資料讀取中…</div>`;return}
   h+=`<div class="sec"><span>${SGV==="s"?"45 分以上":SGV==="b"?"40～44 分":"35～39 分"}・${cur.length} 檔</span><span>資料到 ${esc(lowbase.date)}</span></div>`;
   h+=btBox("sug","建議買進");
@@ -670,15 +682,15 @@ function riseCard([x,v]){
   return `<div class="lc" data-code="${x.c}"><div class="r1"><span class="scb" style="background:${col}">${v.sc}°</span><b>${esc(x.n)}</b><span class="cd">${x.c}${ind?"・"+esc(ind):""}</span>${aiBadge(x.ai)}<span class="px ${k}">${d(v.px)}</span><span class="pc ${k}">${v.ch>0?"+":""}${F(v.ch,2)}%</span></div>
    <div class="rmeter"><i style="width:${prog}%"></i><s></s></div>
    <div class="rngl"><span>季線下 5%</span><span class="${v.crossed?"up":""}">${v.crossed?"▲ 今天站上季線":"距離季線 "+F(v.gap,1)+"%"}</span><span>季線 ${d(v.m60)}${v.slope>=0?" ↗":v.slope>-0.5?" →":" ↘"}</span></div>
-   <div class="tags">${v.p.map(([n,s])=>`<span class="tg">${n} <em>+${s}</em></span>`).join("")}</div>${btLine("rise",techSc(v.p))}</div>`;
+   ${topTags(v.p)}${btLine("rise",techSc(v.p))}</div>`;
 }
 function renderRise(){
   setTB("即將起漲",{left:icBtn("tbSearch","search"),right:icBtn("tbRef","ref")});
   const L=riseList(),hot=L.filter(z=>z[1].sc>=65).length;
-  let h=`<div class="seg seg2" style="margin-top:10px">${CATS.map(([k,t])=>`<button data-rsc="${k}" class="${RSC===k?"on":""}">${t}</button>`).join("")}</div>`+sortSeg("rss",RSS,"依起漲溫度");
+  let h=chips("rsc",RSC,"rss",RSS,"起漲溫度");
   if(!lowbase){$("main").innerHTML=h+`<div class="empty">資料讀取中…</div>`;return}
   const live=isTrading();
-  h+=`<div class="sec"><span>${live?"● 盤中即時":"○ 非交易時間（依最近收盤）"}・準備突破季線 ${L.length} 檔${hot?"・🔥 "+hot+" 檔 65° 以上":""}</span><span>${rtInfo&&live?rtInfo.at:esc(lowbase.date)}</span></div>`;
+  h+=`<div class="sec"><span>${live?"● 盤中":"○ 收盤"}・季線下待突破 ${L.length} 檔${hot?"・🔥 65°+ "+hot+" 檔":""}</span><span>${rtInfo&&live?rtInfo.at:esc(lowbase.date.slice(5))}</span></div>`;
   h+=btBox("rise","即將起漲");
   h+=L.slice(0,80).map(riseCard).join("")||`<div class="empty">目前沒有準備突破季線的低檔股<br><br><small>（需要等今天 18:40 雲端算出季線資料）</small></div>`;
   h+=`<div class="foot"><b>只列出還在季線（60 日均線）下方 5% 以內、準備站上季線的股票，以及今天盤中剛站上季線的股票</b>；已經在季線上面的不列入。<br>
@@ -699,12 +711,12 @@ function aiCard(x){
   return `<div class="lc" data-code="${x.c}"><div class="r1"><span class="scb" style="background:${aiCol(x.ai)}">${x.ai}</span><b>${esc(x.n)}</b><span class="cd">${x.c}${x.m==="O"?" 櫃":""}${ind?"・"+esc(ind):""}</span><span class="px ${k}">${F(px,pxD(px))}</span><span class="pc ${k}">${ch>0?"+":""}${F(ch,2)}%</span></div>
    <div class="r2"><span>近60日 <em>${x.r60>0?"+":""}${F(x.r60,1)}%</em></span><span>距一年高 <em>${F(x.dd,0)}%</em></span><span>離季線 <em>${x.d60>0?"+":""}${F(x.d60,1)}%</em></span></div>
    ${fundLine(x)}
-   <div class="tags">${(x.pts||[]).filter(p=>p[1]>0).map(p=>`<span class="tg">${(PT_FMT[p[0]]||(()=>p[0]))(p[2])} <em>+${F(p[1],1)}</em></span>`).join("")}</div>
-   ${dec?`<div class="btl">📊 模型檢驗期（2023～）同分數：20 日後上漲機率 <b class="${dec.win>=(aiD.base&&aiD.base.win||50)?"up":""}">${F(dec.win,0)}%</b>・平均 ${pct(dec.avg,1)}・漲 10% 以上 ${F(dec.up10,0)}%</div>`:""}</div>`;
+   ${topTags((x.pts||[]).filter(p=>p[1]>0).map(p=>[(PT_FMT[p[0]]||(()=>p[0]))(p[2]),F(p[1],1)]))}
+   ${dec?`<div class="btl">📊 檢驗期同分：20日後上漲 <b class="${dec.win>=(aiD.base&&aiD.base.win||50)?"up":""}">${F(dec.win,0)}%</b>・平均 ${pct(dec.avg,1)}・漲10%+ ${F(dec.up10,0)}%</div>`:""}</div>`;
 }
 function renderAI(){
   setTB("數據精選",{left:icBtn("tbSearch","search"),right:icBtn("tbRef","ref")});
-  let h=`<div class="seg seg2" style="margin-top:10px">${CATS.map(([k,t])=>`<button data-aic="${k}" class="${AIC===k?"on":""}">${t}</button>`).join("")}</div>`;
+  let h=chips("aic",AIC);
   if(!aiD){$("main").innerHTML=h+`<div class="empty">資料讀取中…<br><br><small>（雲端每天收盤後計算）</small></div>`;return}
   const L=aiD.items.filter(x=>!AIC||catOf(x)===AIC),t5=aiD.top5||{},b=aiD.base||{};
   h+=`<details class="btbox"><summary>📊 這個分數怎麼來的？準不準？</summary><div style="padding-top:6px;line-height:1.7">
@@ -723,7 +735,7 @@ function renderPick(){
   let h="";
   const v=lowbase?lbView():{all:[],sig:[],bo:[]};
   h+=`<div class="seg">${[["sig","起漲訊號"],["all","全部低檔"],["bo","今日突破"]].map(([k,t])=>`<button data-lbv="${k}" class="${LBV===k?"on":""}">${t}<small>${lowbase?v[k].length:""}</small></button>`).join("")}</div>`;
-  h+=`<div class="seg seg2">${CATS.map(([k,t])=>`<button data-lbcat="${k}" class="${(LBF.cat||"")===k?"on":""}">${t}</button>`).join("")}</div>`;
+  h+=chips("lbcat",LBF.cat);
   h+=lbMenuBar();
   if(!lowbase){$("main").innerHTML=h+`<div class="empty">資料讀取中…<br><br>（第一次使用需要 GitHub 先算好資料）</div>`;return}
   if(LBF.per>lowbase.days-5)h+=`<div class="foot" style="color:#ffd27a">目前歷史資料只有 ${lowbase.days} 個交易日（約 ${mon(lowbase.days)}），還不夠判斷「${mon(LBF.per)}」的盤整。GitHub 正在往回補資料，補齊後就會出現結果。</div>`;
@@ -1191,6 +1203,7 @@ function renderStock0(){
   }
   const m=mops.filter(x=>x.c===c).slice(0,10),nn=news.filter(n=>(n.st||[]).includes(c)||n.t.includes(q.n)).slice(0,10);
   $("ovBody").innerHTML=`<div class="big"><div class="mute" style="font-size:.85rem">${inf?esc(inf[0])+"・"+esc(inf[1]):""}${q.live?"・即時 "+esc(q.t||""):"・收盤 "+(daily.date||"")}</div><div style="display:flex;align-items:flex-end;gap:14px"><div class="px ${k}">${F(q.px,pxD(q.px))}</div><div class="ch ${k}" style="padding-bottom:6px">${isFinite(q.ch)?(q.ch>0?"▲":q.ch<0?"▼":"")+F(Math.abs(q.ch),2):""}　${isFinite(q.pct)?F(Math.abs(q.pct),2)+"%":""}</div></div></div>
+   <div class="jump">${[["K線","@ktab"],["低檔","低檔分析"],["基本面","基本面"],["法人","法人動向"],["籌碼","三大法人"],["行情","今日行情"],["新聞","重大訊息"]].map(([t,k])=>`<button data-jump="${k}">${t}</button>`).join("")}</div>
    <div class="ktab" id="ktab">${[["d","日K"],["w","週K"],["m","月K"]].map(([k,t])=>`<button data-k="${k}" class="${kMode===k?"on":""}">${t}</button>`).join("")}</div>
    <div id="kwrap"><div class="kfbar"><b>${esc(q.n)} ${c}</b><button data-kf="0">✕ 關閉全螢幕</button></div><div class="kma" id="kma">${maBtns()}</div><div class="kleg" id="kleg"></div><div id="kbox"></div><div class="kzoom" id="kzoom"><button data-kz="1.5">－ 縮小</button><button data-kz="0.67">＋ 放大</button><button data-kp="0.5">◀</button><span></span><button data-kp="-0.5">▶</button><button data-kf="1">⛶ 全螢幕</button></div></div>
    ${lbStockHTML(c)}
@@ -1315,6 +1328,8 @@ document.addEventListener("click",e=>{
   if(t.closest("#tbAdd")){go("add");return}
   const km=t.closest("[data-kma]");if(km){const n=+km.dataset.kma;kMA=kMA.includes(n)?kMA.filter(x=>x!==n):[...kMA,n].sort((a,b)=>a-b);store.set("kMA",kMA);$("kma").innerHTML=maBtns();drawK();return}
   const ry=t.closest("[data-rvy]");if(ry&&!ry.disabled){rvY=+ry.dataset.rvy;store.set("rvY",rvY);keepScroll(renderStock);return}
+  const jp=t.closest("[data-jump]");if(jp){const k=jp.dataset.jump,B=$("ovBody");let el=k[0]==="@"?$(k.slice(1)):[...B.querySelectorAll(".sec")].find(x=>x.innerText.trim().startsWith(k));
+    if(el){const top=el.getBoundingClientRect().top-B.getBoundingClientRect().top+B.scrollTop-B.querySelector(".jump").offsetHeight;B.scrollTo({top,behavior:"smooth"})}else toast("這檔沒有「"+jp.innerText+"」資料");return}
   const kz=t.closest("[data-kz]");if(kz){kZoom(+kz.dataset.kz);return}
   const kp=t.closest("[data-kp]");if(kp){kPan(+kp.dataset.kp);return}
   const kf=t.closest("[data-kf]");if(kf){kSetFull(kf.dataset.kf==="1");return}
