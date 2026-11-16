@@ -18,7 +18,10 @@
 */
 (function(){
   const RAW="https://raw.githubusercontent.com/magic018076-code/stock-app/main/www/";
-  const ls={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}},del(k){try{localStorage.removeItem(k)}catch(e){}}};
+  const ls={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v);return true}catch(e){return false}},del(k){try{localStorage.removeItem(k)}catch(e){}}};
+  // 手機儲存空間滿時，清掉可以重新下載的快取（行情、K 線、新聞等），不動自選股、庫存、設定
+  function purge(){try{const ks=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(/^(c_|h_|kf_|rtSnap)/.test(k))ks.push(k)}ks.forEach(k=>localStorage.removeItem(k))}catch(e){}}
+  function save(k,v){if(ls.set(k,v)&&ls.get(k)===v)return true;purge();return ls.set(k,v)&&ls.get(k)===v}
   let cached=ls.get("ota_html"),cv=+(ls.get("ota_v")||0);
   // 上次用新介面啟動失敗 → 丟掉，改用內建
   if(cached&&ls.get("ota_booting")==="1"){ls.set("ota_bad",String(cv));ls.del("ota_html");ls.del("ota_v");cached=null;cv=0}
@@ -37,7 +40,8 @@
       const h=await fetch(RAW+"app.html?t="+Date.now(),{headers:{"Cache-Control":"no-cache"}});if(!h.ok)return;
       const html=await h.text();
       if(html.length<5000||html.indexOf("__appOK")<0)return; // 不完整的檔案不用
-      ls.set("ota_html",html);ls.set("ota_v",String(v));
+      if(!save("ota_html",html)){ls.del("ota_html");return} // 存不進去就不要提示「已更新」
+      ls.set("ota_v",String(v));
       window.__otaReady=v;if(typeof window.__onOtaReady==="function")window.__onOtaReady(v);
     }catch(e){}
   }
