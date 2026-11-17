@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: lowbase
@@ -24,7 +25,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 200
+    timeout-minutes: 340
     steps:
       - uses: actions/checkout@v4
 
@@ -55,3 +56,15 @@ jobs:
           git add -A
           git -c user.name="stock-app-bot" -c user.email="bot@users.noreply.github.com" commit -qm "lowbase $(date -u +%F)"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" data
+
+      - name: 還沒補完就自動接著跑下一輪
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f cache/more.flag ]; then
+            echo "還有資料要補（$(cat cache/more.flag)），啟動下一輪"
+            gh workflow run lowbase.yml --repo ${{ github.repository }} --ref main
+          else
+            echo "資料已補齊"
+          fi

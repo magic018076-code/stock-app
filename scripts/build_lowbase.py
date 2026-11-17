@@ -11,7 +11,7 @@ import gzip, json, os, sys, time, datetime as dt, urllib.request, urllib.error
 UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36"
 HIST = "cache/hist.json.gz"
 OUT = "out/lowbase.json"
-DAYS_BACK = 3680         # 往回補的日曆天數（約 10 年，支援 10 年盤整）
+DAYS_BACK = 7300         # 往回補的日曆天數（約 20 年）
 MAX_FETCH = int(os.environ.get("MAX_FETCH", "1700"))  # 單次最多請求數，避免跑太久
 SLEEP = 2.2
 THRESH = [10, 15, 20, 25, 30]
@@ -119,6 +119,8 @@ def update(h):
     for d in want:  # 新的日期先抓
         if fetched + 2 > MAX_FETCH:
             print("本次請求數到上限，下次再補", flush=True)
+            os.makedirs("cache", exist_ok=True)
+            open("cache/more.flag", "w").write("price")
             break
         k = d.isoformat()
         a = fetch_twse(d); time.sleep(SLEEP)
@@ -141,7 +143,7 @@ def update(h):
         a.update(b)
         h["days"][k] = a
         print(" ", k, len(a), "檔", flush=True)
-        if fetched % 40 == 0:
+        if fetched % 400 == 0:
             h["closed"] = sorted(closed); save_hist(h)
     # 只保留需要的期間
     cut = (today - dt.timedelta(days=DAYS_BACK + 10)).isoformat()
@@ -341,6 +343,8 @@ def write_kfiles(h, rv=None, fi=None, series=None):
 
 
 def main():
+    if os.path.exists("cache/more.flag"):
+        os.remove("cache/more.flag")
     h = load_hist()
     h = update(h)
     save_hist(h)

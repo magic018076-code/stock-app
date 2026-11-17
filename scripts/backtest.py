@@ -236,7 +236,7 @@ def run(series, dates):
         print("模型校準失敗", e, flush=True)
 
     out = {"asof": dates[-1], "from": dates[250] if len(dates) > 250 else dates[0], "days": H,
-           "base": base, "rise": rise, "sug": sug, "model": model, "model60": model60, "vol_study": vol_study, "plan": plan, "brk": brk, "ver": VER, "secs": round(time.time() - t0)}
+           "base": base, "rise": rise, "sug": sug, "model": model, "model60": model60, "vol_study": vol_study, "plan": plan, "brk": brk, "ver": VER, "nd": len(dates), "secs": round(time.time() - t0)}
     print(f"回測完成：{out['from']}～{out['asof']}，全市場 {base['n']} 筆，即將起漲候選 {rise['all']['n']} 筆，建議買進候選 {sug['all']['n']} 筆，{out['secs']} 秒", flush=True)
     return out
 
@@ -975,7 +975,8 @@ def maybe_run(series, dates, force=False):
             old = json.load(open(p, encoding="utf-8"))
         except Exception:
             old = None
-    stale = force or not old or old.get("ver") != VER or (dt.date.fromisoformat(dates[-1]) - dt.date.fromisoformat(old["asof"])).days >= 7
+    stale = force or not old or old.get("ver") != VER or (dt.date.fromisoformat(dates[-1]) - dt.date.fromisoformat(old["asof"])).days >= 7 \
+        or len(dates) - old.get("nd", 0) > 100          # 歷史資料補長了就重跑
     if stale:
         try:
             old = run(series, dates)

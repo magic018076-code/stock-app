@@ -197,48 +197,71 @@ def update_rev():
 
 
 # ---------- 3. 三大法人 ----------
+INSTI_FROM = "2012-05-02"   # 證交所三大法人個股日報最早的日期
+
+
 def fetch_insti_day(d):
-    """回傳 {代號: [外資, 投信, 自營]}（張）；資料還沒公布回傳 None"""
+    """回傳 {代號: [外資, 投信, 自營]}（張）；資料還沒公布回傳 None。
+    證交所欄位在 2014 年底、2017 年底改過，依欄位名稱找；櫃買中心依欄位數判斷新舊格式。"""
     out = {}
     j = getj(f"https://www.twse.com.tw/rwd/zh/fund/T86?date={d.replace('-', '')}&selectType=ALLBUT0999&response=json", 2, 30)
     time.sleep(SLEEP)
-    if not j or j.get("stat") != "OK":
-        return None
-    for r in j.get("data", []):
-        c = str(r[0]).strip()
-        if re.fullmatch(r"\d{4}", c):
-            out[c] = [round(((n(r[4]) or 0) + (n(r[7]) or 0)) / 1000), round((n(r[10]) or 0) / 1000), round((n(r[11]) or 0) / 1000)]
+    if j is None:
+        raise RuntimeError("證交所沒有回應")
+    if j.get("stat") == "OK":
+        f = [str(x).replace(" ", "") for x in (j.get("fields") or [])]
+        fi = [i for i, x in enumerate(f) if "買賣超" in x and ("外資" in x or "外陸資" in x)]      # 外資（新格式有兩欄：不含自營商＋外資自營商）
+        ti = next((i for i, x in enumerate(f) if x.startswith("投信買賣超")), None)
+        di = next((i for i, x in enumerate(f) if x == "自營商買賣超股數"), None)
+        if fi and ti is not None:
+            for r in j.get("data", []):
+                c = str(r[0]).strip()
+                if re.fullmatch(r"\d{4}", c) and len(r) > max(fi + [ti]):
+                    out[c] = [round(sum(n(r[i]) or 0 for i in fi) / 1000), round((n(r[ti]) or 0) / 1000), round((n(r[di]) or 0) / 1000) if di is not None and len(r) > di else 0]
     j = getj(f"https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date={d.replace('-', '/')}&response=json", 2, 30)
     time.sleep(SLEEP)
     t = (j or {}).get("tables") or [{}]
     for r in t[0].get("data", []) if t else []:
         c = str(r[0]).strip()
-        if re.fullmatch(r"\d{4}", c):
+        if not re.fullmatch(r"\d{4}", c):
+            continue
+        if len(r) >= 23:      # 2018 年起的新格式
             out[c] = [round((n(r[10]) or 0) / 1000), round((n(r[13]) or 0) / 1000), round((n(r[22]) or 0) / 1000)]
+        elif len(r) >= 9:     # 舊格式
+            out[c] = [round((n(r[4]) or 0) / 1000), round((n(r[7]) or 0) / 1000), round((n(r[8]) or 0) / 1000)]
     return out
 
 
 def update_insti(dates):
     ins = load(INSTI, {})
-    want = dates[-250:]  # 法人資料保留約 1 年
-    t0 = time.time()
+    want = [d for d in dates if d >= INSTI_FROM]   # 從證交所有資料的第一天起全部保留
+    today = dt.datetime.now(TW).date()
+    t0, k, left = time.time(), 0, 0
+    budget = int(os.environ.get("INSTI_SECS", "2700"))
     for d in want[::-1]:  # 新的日期先抓
         if d in ins:
             continue
-        if time.time() - t0 > 600:
-            print("  法人資料時間到，剩下的下次再補", flush=True)
-            break
+        if time.time() - t0 > budget:
+            left += 1
+            continue
         try:
             got = fetch_insti_day(d)
             if got:
                 ins[d] = got
                 print(f"  法人 {d}：{len(got)} 檔", flush=True)
+            elif (today - dt.date.fromisoformat(d)).days >= 5:
+                ins[d] = {}        # 很久以前的日期沒有資料：記下來，不再重抓
+            k += 1
+            if k % 50 == 0:
                 save(INSTI, ins)
         except Exception as e:
             print("  法人失敗", d, e, flush=True)
-    ins = {k: v for k, v in ins.items() if k >= want[0]}
+    if left:
+        print(f"  法人資料時間到，還有 {left} 天下次再補", flush=True)
+        open("cache/more.flag", "w").write("insti")
+    ins = {k_: v for k_, v in ins.items() if k_ >= INSTI_FROM}
     save(INSTI, ins)
-    return ins
+    return {k_: v for k_, v in ins.items() if v}    # 只回傳有資料的日子
 
 
 def streak(vals):
