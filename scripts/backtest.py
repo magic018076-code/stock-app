@@ -10,7 +10,7 @@ import json, os, time, datetime as dt
 
 TW = dt.timezone(dt.timedelta(hours=8))
 H = 20  # 看之後幾個交易日
-VER = 4  # 回測程式版本；改版時自動重跑
+VER = 5  # 回測程式版本；改版時自動重跑
 
 
 def frames(series, dates):
@@ -151,7 +151,8 @@ def run(series, dates):
              "r60": (C / C.shift(60) - 1) * 100, "dd": (C / hi250 - 1) * 100, "rng42": rng42 * 100, "bo": bo.astype(float),
              "gap": gap, "vol20": C.pct_change().rolling(20).std() * 100, "amt": (C * V.rolling(20).mean() / 1e5),
              "rvy": rvy, "mkt": mkt}
-        U = (pos <= 60) & (v20 >= 100) & valid
+        jump = C.pct_change().abs().rolling(60, min_periods=1).max() > 0.11   # 單日漲跌超過 11%＝資料斷層（未還原的減資等），排除
+        U = (pos <= 60) & (v20 >= 100) & valid & ~jump
         # 逐年檢驗：每一年都只用「那一年以前」的資料學習，再預測那一年
         y0 = int(dates[0][:4]) + 4
         wf = []
@@ -304,6 +305,8 @@ def score_today(series, dates, fund=None, ind=None, top=150):
         v20 = sum(V[-21:-1]) / 20
         if pos > 60 or v20 < 100:
             continue
+        if any(abs(C[i] / C[i - 1] - 1) > 0.11 for i in range(len(C) - 60, len(C))):
+            continue  # 近 60 天有超過漲跌停的跳動＝資料斷層（例如未還原的減資），不評分
         u60 = 0
         for k in range(len(C) - 2, len(C) - 250, -1):
             if C[k] < sum(C[k - 59:k + 1]) / 60:
