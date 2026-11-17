@@ -225,7 +225,7 @@ body.swap .qr>div.lu{background:#0f7a0f}body.swap .qr>div.ld{background:#b30d0d}
   <div class="main" id="main"></div>
   <nav id="nav">
     <button data-t="home"><svg viewBox="0 0 32 32"><path d="M5 15L16 5l11 10"/><path d="M8 13v13h6v-7h4v7h6V13"/></svg>首頁</button>
-    <button data-t="rise" class="pk"><svg viewBox="0 0 32 32"><path d="M4 25h24"/><path d="M6 21l6-5 5 3 9-10"/><path d="M20 9h6v6"/></svg>即將起漲</button>
+    <button data-t="rise" class="pk"><svg viewBox="0 0 32 32"><path d="M4 25h24"/><path d="M6 21l6-5 5 3 9-10"/><path d="M20 9h6v6"/></svg>即將突破</button>
     <button data-t="suggest"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="11"/><circle cx="16" cy="16" r="6"/><circle cx="16" cy="16" r="1.5"/><path d="M24 8l-6 6"/></svg>建議買進</button>
     <button data-t="pick"><svg viewBox="0 0 32 32"><path d="M4 24h6l3-3h6l3 3h6"/><path d="M22 19l4-10M22 9h4v4"/></svg>低檔選股</button>
     <button data-t="ai"><svg viewBox="0 0 32 32"><rect x="6" y="18" width="4" height="8"/><rect x="14" y="12" width="4" height="14"/><rect x="22" y="6" width="4" height="20"/><path d="M5 9l6-3 6 4 9-6"/></svg>數據精選</button>
@@ -288,7 +288,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=40; // 介面版本，要和 ota.json 一致
+const UI_V=41; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:10,fs:"m"},store.get("settings",{}));
 if(S.int===20&&!S.intSet)S.int=10; // 舊預設 20 秒改成 10 秒（使用者自己選過的不動）
@@ -683,58 +683,67 @@ function renderSuggest(){
   h+=`<div class="foot">名單依最近一個交易日收盤後的資料計算，適用於下一個交易日。盤中會即時標示「可進場／已高於不追價／已跌破停損價」。<br><b style="color:#ffd27a">依公開資料以統計模型計算，僅供參考，不構成投資建議；買賣請自行判斷並控制風險。</b></div>`;
   $("main").innerHTML=h;
 }
-/* ===== 即將起漲 =====
-   盤中即時盯「快要突破盤整區」的低檔股：離上緣多近、今日量能、今日漲幅、盤整長度、均線糾結、法人。 */
-let RSC=store.get("rsC",""),RSS=store.get("rsS2","ai"); // 即將起漲預設依數據分數排序
-// 今天到目前為止，成交時間佔全天（09:00～13:30）的比例，用來推估今天的量是平常的幾倍
-function dayFrac(){const t=tp(),m=t.getUTCHours()*60+t.getUTCMinutes()-540;return isTrading()?Math.max(0.08,Math.min(1,m/270)):1}
-function riseOf(x){
-  // 以季線（60 日均線）為準：只抓還在季線下、快要站上，或今天剛站上的股票
-  if(!(x.m60>0)||!(x.s59>0)||x.pos>60||limDown(x))return null;
-  const r=rt[x.c],live=r&&!r.stale&&isFinite(r.z),px=live?r.z:x.px,ch=live&&isFinite(r.pct)?r.pct:x.ch;
-  const m60=live?(x.s59+px)/60:x.m60;          // 盤中用即時價算今天的季線
-  const wasBelow=x.px<x.m60;                     // 最近一個收盤在季線下
-  const d60=(m60-px)/m60*100;                    // 正數＝還在季線下幾 %
-  const crossed=live&&wasBelow&&px>=m60;          // 今天盤中剛站上季線
-  if(!crossed&&(!wasBelow||d60<=0||d60>5))return null;  // 已在季線上（不是今天剛突破）或離太遠的不要
-  const slope=(x.m60-x.m60p)/x.m60p*100,L=x.len&&x.len["20"]||0;
-  const vr=live&&isFinite(r.v)&&x.v20?r.v/(x.v20*dayFrac()):(x.v120?x.v20/x.v120:0);
-  const p=[],add=(n,s)=>{if(s>0)p.push([n,Math.round(s)])};
-  add(crossed?"今天站上季線":"離季線 "+F(d60,1)+"%",crossed?35:d60<=1?30:d60<=2?25:d60<=3.5?18:10);
-  add(slope>=0?"季線翻揚":"季線走平",slope>=0?10:slope>-0.5?6:0);
-  add("季線下 "+x.u60+" 天",x.u60>=40?10:x.u60>=20?5:0);
-  add((live?"今日量 ":"近月量 ")+F(vr,1)+" 倍",vr>=2?20:vr>=1.5?15:vr>=1.2?8:0);
-  add("今日 "+(ch>0?"+":"")+F(ch,1)+"%",ch>=3?15:ch>=1?10:ch>0?5:0);
-  add("站上月線",x.m20>0&&px>=(live?x.m20+(px-x.px)/20:x.m20)?5:0);
-  if(x.ts>=3)add("投信連買"+x.ts+"天",10);
-  if(x.fs>=5)add("外資連買"+x.fs+"天",5);
-  return {sc:Math.min(100,p.reduce((a,b)=>a+b[1],0)),p,px,ch,gap:crossed?0:d60,m60,crossed,slope,live};
+/* ===== 即將突破 =====
+   10 年實測：低檔股的各種「突破」照實際操作都不賺；有效的是「強勢股剛創一年新高」。
+   雲端每天收盤後列出：今日突破（可進場）、即將突破（離一年新高 3% 內，觀察）、近期突破追蹤。 */
+let brkD=null,RSC=store.get("rsC",""),RSV=store.get("rsV","today");
+async function loadBrk(force){brkD=await cached("brk",4,async()=>{const j=await getJSON(LB_URL.replace("lowbase.json","brk.json")+"?t="+Math.floor(Date.now()/600000));if(!j.today)throw new Error("bad");return j},force).catch(()=>brkD)}
+const brkCat=x=>{const n=(x.ic&&IND[x.ic])||"";return !n?"":TECH.has(n)?"T":n==="金融保險"?"F":"C"};
+function brkLists(){const f=a=>(a||[]).filter(x=>!RSC||brkCat(x)===RSC);return brkD?{today:f(brkD.today),near:f(brkD.near),recent:f(brkD.recent)}:{today:[],near:[],recent:[]}}
+function riseList(){const L=brkLists();return (L[RSV]||[]).map(x=>[x])}
+function brkHead(x,badge,col){
+  const r=rt[x.c],lv=r&&!r.stale&&isFinite(r.z),px=lv?r.z:(x.now||x.px),ch=lv&&isFinite(r.pct)?r.pct:(x.now?NaN:x.ch),k=cls(ch),ind=(x.ic&&IND[x.ic])||"";
+  return [`<div class="r1">${badge?`<span class="scb" style="background:${col}">${badge}</span>`:""}<b>${esc(x.n)}</b><span class="cd">${x.c}${x.m==="O"?" 櫃":""}${ind?"・"+esc(ind):""}</span>${x.warn?`<span class="aib" style="border-color:#ff5a4a;color:#ff5a4a">${esc(x.warn)}</span>`:""}<span class="px ${k}">${F(px,pxD(px))}</span><span class="pc ${k}">${isFinite(ch)?(ch>0?"+":"")+F(ch,2)+"%":""}</span></div>`,px,lv];
 }
-function riseList(){
-  if(!lowbase)return [];
-  return lowbase.items.filter(x=>!RSC||catOf(x)===RSC).map(x=>[x,riseOf(x)]).filter(z=>z[1]&&z[1].sc>=50).sort(RSS==="ai"?(a,b)=>(b[0].ai??-1)-(a[0].ai??-1)||b[1].sc-a[1].sc:(a,b)=>b[1].sc-a[1].sc||a[1].gap-b[1].gap);
+function brkSize(x,stop){const risk=x.px-stop,cap=(S.cap||100)*1e4,lots=risk>0?Math.floor(cap*0.01/(risk*1000)):0,sh=risk>0?Math.floor(cap*0.01/risk):0;
+  return `<div class="btl">💰 ${S.cap||100} 萬資金：買 <b style="color:#fff">${lots>0?lots+" 張（約 "+fmtC(lots*x.px/10,0)+" 萬）":"零股 "+fmtC(sh,0)+" 股"}</b>，停損時約賠 ${fmtC((S.cap||100)*100,0)} 元</div>`}
+function brkTags(x){const t=[];if(x.vr>=1.5)t.push(["量 "+F(x.vr,1)+" 倍",""]);if(x.rvy>=20)t.push(["營收年增 "+yoyT(x.rvy),""]);if(x.ts>=3)t.push(["投信連買 "+x.ts+" 天",""]);if(x.fs>=5)t.push(["外資連買 "+x.fs+" 天",""]);if(x.pe>0)t.push(["本益比 "+F(x.pe,1),""]);
+  return t.length?`<div class="tags">${t.map(z=>`<span class="tg">${z[0]}</span>`).join("")}</div>`:""}
+function brkCardToday(x){
+  const d=p=>F(p,pxD(p)),stop=rTick(x.stop),nc=rTick(x.nc),[hd,px,lv]=brkHead(x,"突破","#e8322a");
+  const st=x.warn?["處置股，不買","#ff5a4a",3]:lv&&px<=stop?["已跌破停損價，取消","#25d925",3]:lv&&px>nc?["已高於不追價，不追","#999",2]:lv&&px<x.hi?["跌回新高價之下，先觀察","#999",1]:lv?["價位可進場","#ffb020",0]:["明日開盤進場","#7fb3ff",0];
+  return `<div class="lc" data-code="${x.c}" style="${st[2]>=2?"opacity:.55":""}">${hd}
+   <div class="sgs"><span class="aib" style="border-color:${st[1]};color:${st[1]};margin:0">${st[0]}</span><span>開盤買進，高於 <b>${d(nc)}</b> 不追</span></div>
+   <div class="sgg" style="grid-template-columns:1fr 1fr 1fr 1fr"><div><span>突破價</span><b>${d(x.hi)}</b></div><div><span>收盤</span><b>${d(x.px)}</b></div><div><span>停損 ${F((stop/x.px-1)*100,0)}%</span><b class="down">${d(stop)}</b></div><div><span>最多抱</span><b>${brkD.plan&&brkD.plan.hold||60} 天</b></div></div>
+   ${brkSize(x,stop)}${brkTags(x)}</div>`;
 }
-function riseCard([x,v]){
-  const k=v.ch>0?"up":v.ch<0?"down":"flat",ind=indOf(x),d=p=>F(p,pxD(p));
-  const col=v.sc>=65?"#e8322a":v.sc>=55?"#ff7a1a":"#ffb020";
-  const prog=Math.max(0,Math.min(100,100-v.gap/5*100)); // 季線下 5% 為 0，碰到季線為 100
-  return `<div class="lc" data-code="${x.c}"><div class="r1"><span class="scb" style="background:${col}">${v.sc}°</span><b>${esc(x.n)}</b><span class="cd">${x.c}${ind?"・"+esc(ind):""}</span>${aiBadge(x.ai)}<span class="px ${k}">${d(v.px)}</span><span class="pc ${k}">${v.ch>0?"+":""}${F(v.ch,2)}%</span></div>
-   <div class="rmeter"><i style="width:${prog}%"></i><s></s></div>
-   <div class="rngl"><span>季線下 5%</span><span class="${v.crossed?"up":""}">${v.crossed?"▲ 今天站上季線":"距離季線 "+F(v.gap,1)+"%"}</span><span>季線 ${d(v.m60)}${v.slope>=0?" ↗":v.slope>-0.5?" →":" ↘"}</span></div>
-   ${topTags(v.p)}${btLine("rise",techSc(v.p))}</div>`;
+function brkCardNear(x){
+  const d=p=>F(p,pxD(p)),[hd,px,lv]=brkHead(x,"",""),dist=(x.hi/px-1)*100,hit=lv&&px>=x.hi,prog=Math.max(0,Math.min(100,100-dist/3*100));
+  return `<div class="lc" data-code="${x.c}">${hd}
+   <div class="rmeter"><i style="width:${hit?100:prog}%"></i><s></s></div>
+   <div class="rngl"><span>差 3%</span><span class="${hit?"up":""}">${hit?"🔥 盤中突破一年新高":"距離突破 "+F(Math.max(dist,0),1)+"%"}</span><span>一年新高 ${d(x.hi)}</span></div>
+   <div class="btl">${hit?"收盤站穩才算突破；明天會列入「今日突破」":"收盤站上 "+d(x.hi)+" 才算突破，還沒突破前先觀察、不要預先買"}</div>${brkTags(x)}</div>`;
+}
+function brkCardRecent(x){
+  const d=p=>F(p,pxD(p)),col=x.st==="停損"?"#25d925":x.st==="持有中"?(x.ret>0?"#e8322a":"#888"):"#555",[hd,px,lv]=brkHead(x,x.st==="持有中"?"持有":x.st==="停損"?"停損":"未進",col);
+  const ret=x.st==="持有中"&&lv&&x.e?(px/x.e-1)*100:x.ret,stop=rTick(x.stop);
+  return `<div class="lc" data-code="${x.c}">${hd}
+   <div class="r2"><span>${x.d.slice(5)} 突破</span>${x.e?`<span>進場 <em>${d(x.e)}</em></span>`:`<span>${esc(x.why||"")}</span>`}<span>停損 ${d(stop)}</span>${typeof ret==="number"?`<span>報酬 <b class="${cls(ret)}">${pct(ret,1)}</b></span>`:""}${x.days?`<span>第 ${x.days} 天</span>`:""}</div></div>`;
 }
 function renderRise(){
-  setTB("即將起漲",{left:icBtn("tbSearch","search"),right:icBtn("tbRef","ref")});
-  const L=riseList(),hot=L.filter(z=>z[1].sc>=65).length;
-  let h=chips("rsc",RSC,"rss",RSS,"起漲溫度");
-  if(!lowbase){$("main").innerHTML=h+`<div class="empty">資料讀取中…</div>`;return}
-  const live=isTrading();
-  h+=`<div class="sec"><span>${live?"● 盤中":"○ 收盤"}・季線下待突破 ${L.length} 檔${hot?"・🔥 65°+ "+hot+" 檔":""}</span><span>${rtInfo&&live?rtInfo.at:esc(lowbase.date.slice(5))}</span></div>`;
-  h+=btBox("rise","即將起漲");
-  h+=L.slice(0,80).map(riseCard).join("")||`<div class="empty">目前沒有準備突破季線的低檔股<br><br><small>（需要等今天 18:40 雲端算出季線資料）</small></div>`;
-  h+=`<div class="foot"><b>只列出還在季線（60 日均線）下方 5% 以內、準備站上季線的股票，以及今天盤中剛站上季線的股票</b>；已經在季線上面的不列入。<br>
-   <b>起漲溫度</b>（滿分 100°，50° 以上才列出）：今天站上季線 35、離季線 1% 內 30、2% 內 25、3.5% 內 18、5% 內 10；季線翻揚 10、走平 6；在季線下超過 40 天 10、20 天 5（打底越久翻身越有力）；今日量是平常 2 倍以上 20、1.5 倍 15、1.2 倍 8（盤中依時間推估）；今日漲 3% 以上 15、1% 以上 10、上漲 5；站上月線 5；投信連買 10、外資連買 5。<br>
-   盤中的季線用即時價計算。進度條碰到最右邊白線＝站上季線；季線後的 ↗ → ↘ 是季線方向。盤中每 ${S.int} 秒自動更新。<br><b style="color:#ffd27a">依公開資料以固定規則計算，僅供參考，不構成投資建議。</b></div>`;
+  setTB("即將突破",{left:icBtn("tbSearch","search"),right:icBtn("tbRef","ref")});
+  const L=brkLists();
+  let h=`<div class="seg">${[["today","今日突破"],["near","即將突破"],["recent","近期追蹤"]].map(([k,t])=>`<button data-rsv="${k}" class="${RSV===k?"on":""}">${t}<small>${brkD?L[k].length:""}</small></button>`).join("")}</div>`+chips("rsc",RSC);
+  if(!brkD){$("main").innerHTML=h+`<div class="empty">資料讀取中…<br><br><small>（雲端每天收盤後計算）</small></div>`;return}
+  const P=brkD.plan||{},A=P.all||{},rs=brkD.rsum||{},bw=brkD.breadth<25,bst=((P.states||[]).find(x=>brkD.breadth>=x[0]&&brkD.breadth<x[1])||[])[2]||{};
+  h+=`<div class="light" style="border-color:${bw?"#ff5a4a":"#3ba7ff"}"><div class="lt"><b style="color:${bw?"#ff5a4a":"#9fd2ff"}">${bw?"⚠ 大盤超跌，突破容易失敗":"大盤狀態適合做突破"}</b><span>大盤站上季線 ${F(brkD.breadth,0)}%</span></div>
+   <div class="ld">${bw?"大盤很弱的時候，創新高的股票很少、也容易被拖下來。這時候請以「建議買進」（跌深反彈）為主，突破先觀察。":"強勢股創新高的方法，在大盤正常或偏強時表現比較好。"}${bst.n>=50?`<br>歷史上這種大盤狀態進場：<b>勝率 ${F(bst.win,0)}%、平均每筆 ${pct(bst.avg,1)}</b>`:""}</div></div>`;
+  if(A.n){
+    h+=`<div class="pstat"><div><span>歷史勝率</span><b>${F(A.win,0)}%</b></div><div><span>平均每筆</span><b class="${cls(A.avg)}">${pct(A.avg,1)}</b></div><div><span>賺時平均</span><b class="up">${pct(A.aw,1)}</b></div><div><span>賠時平均</span><b class="down">${pct(A.al,1)}</b></div></div>`;
+    h+=`<details class="btbox"><summary>📊 為什麼是「創一年新高」？準不準？</summary><div style="padding-top:6px;line-height:1.7">
+     我們用 10 年資料實測了 23 種突破型態（隔天開盤買、扣手續費和稅）。<b>低檔股的突破幾乎都不賺</b>：低檔股站上季線平均每筆 −1.1%、低檔股突破 60 日新高 −1.7%（10 年沒有一年賺）、盤整後帶量突破 −0.4%。<br>
+     <b>有效的是強勢股</b>：股價剛創一年新高（前 20 天沒創過）。<br>
+     <b>操作</b>：隔天開盤買（開盤高於「不追價」就放棄）→ 跌破停損價（收盤價 − ${P.ks} 倍 ATR）就賣 → 沒跌破就抱滿 ${P.hold} 個交易日。<br>
+     <b>實測</b>（${fmtC(A.n,0)} 筆，已扣成本 ${F(P.cost,2)}%）：勝率 ${F(A.win,0)}%，平均每筆 ${pct(A.avg,1)}，平均抱 ${F(A.days,0)} 天；10 年中 ${A.yp} 年賺錢。</div>
+     ${P.years?`<table><tr><th>年份</th><th>筆數</th><th>勝率</th><th>平均每筆</th></tr>${P.years.map(y=>`<tr><td>${y[0]}</td><td>${fmtC(y[1].n,0)}</td><td>${F(y[1].win,0)}%</td><td class="${cls(y[1].avg)}">${pct(y[1].avg,1)}</td></tr>`).join("")}</table>`:""}
+     ${P.states?`<table><tr><th>進場時大盤（站上季線比例）</th><th>勝率</th><th>平均每筆</th></tr>${P.states.filter(x=>x[2].n>=50).map(x=>`<tr><td>${x[0]}～${Math.min(x[1],100)}%</td><td>${F(x[2].win,0)}%</td><td class="${cls(x[2].avg)}">${pct(x[2].avg,1)}</td></tr>`).join("")}</table>`:""}
+     <div class="foot" style="padding:6px 0 0"><b>要有心理準備</b>：這個方法<b>大約 3 筆裡有 2 筆會停損</b>（每筆賠約 ${F(Math.abs(A.al),0)}%），靠的是少數幾筆大賺（平均 +${F(A.aw,0)}%）。所以每筆金額要小、<b>停損一定要執行、賺的要抱住不要太早賣</b>。優勢不大，2018、2022 年是小賠的。過去表現不代表未來。</div></details>`;
+  }
+  h+=`<div class="capr"><span>我的資金</span>${[30,50,100,200,500].map(c=>`<button data-cap="${c}" class="${(S.cap||100)===c?"on":""}">${c}萬</button>`).join("")}<span class="mute">每筆最多賠 1%</span></div>`;
+  const cur=L[RSV]||[];
+  h+=`<div class="sec"><span>${RSV==="today"?"今天收盤剛創一年新高":RSV==="near"?"離一年新高 3% 以內（觀察）":`近 15 日突破${rs.n?`：${rs.n} 筆，目前賺錢 ${F(rs.win,0)}%，平均 ${pct(rs.avg,1)}`:""}`}・${cur.length} 檔</span><span>${esc(brkD.date.slice(5))} 收盤</span></div>`;
+  h+=cur.slice(0,100).map(RSV==="today"?brkCardToday:RSV==="near"?brkCardNear:brkCardRecent).join("")||`<div class="empty">${RSV==="today"?"今天沒有股票創一年新高<br><br>可以看「即將突破」的觀察名單":"目前沒有符合的股票"}</div>`;
+  h+=`<div class="foot">只列日均成交 2,000 萬以上的股票；當天漲停的不列入（隔天買不到好價位）。「即將突破」是觀察名單，盤中突破時會標示 🔥，但要收盤站穩才算。<br><b style="color:#ffd27a">依公開資料以固定規則計算，僅供參考，不構成投資建議。</b></div>`;
   $("main").innerHTML=h;
 }
 /* ===== 數據精選 =====
@@ -1354,7 +1363,7 @@ document.addEventListener("click",e=>{
   const mv=t.closest("[data-mv]");if(mv){const g=curGroup(),i=+mv.dataset.mv,j=i+ +mv.dataset.d;if(j>=0&&j<g.codes.length){[g.codes[i],g.codes[j]]=[g.codes[j],g.codes[i]];saveG();renderOv()}return}
   const lf=t.closest("[data-lbf]");if(lf){const k=lf.dataset.lbf,v=lf.dataset.v;LBF[k]=["mkt","sort"].includes(k)?v:+v;store.set("lbF",LBF);const el=ovKind?$("ovBody"):$("main"),sc=el.scrollTop;ovKind?renderOv():render();el.scrollTop=sc;return}
   const cp=t.closest("[data-cap]");if(cp){S.cap=+cp.dataset.cap;saveS();keepScroll(render);return}
-  const rss=t.closest("[data-rss]");if(rss){RSS=rss.dataset.rss;store.set("rsS2",RSS);render();return}
+  const rsv=t.closest("[data-rsv]");if(rsv){RSV=rsv.dataset.rsv;store.set("rsV",RSV);$("main").scrollTop=0;render();refreshRT();return}
   const sgs=t.closest("[data-sgs]");if(sgs){SGS=sgs.dataset.sgs;store.set("sgS",SGS);render();return}
   const ac=t.closest("[data-aic]");if(ac){AIC=ac.dataset.aic;store.set("aiC",AIC);render();return}
   const rs=t.closest("[data-rsc]");if(rs){RSC=rs.dataset.rsc;store.set("rsC",RSC);render();return}
@@ -1447,6 +1456,7 @@ async function boot(force){
     loadMops(force),
     loadFund(force).then(rerender),
     loadBT(force).then(rerender),
+    loadBrk(force).then(()=>{if(tab==="rise")refreshRT();rerender()}),
     loadAI(force).then(()=>{if(tab==="ai"||tab==="suggest")refreshRT();rerender()}),
     loadLowbase(force).then(()=>{if(tab==="pick"||tab==="home"||tab==="suggest"||tab==="rise")refreshRT();if(ovKind==="lowbase")renderOv();else rerender()}),
     loadDaily(false).then(()=>Promise.all([loadFlows(force),loadInsti(force)])).then(rerender)
