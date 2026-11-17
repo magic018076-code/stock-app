@@ -364,7 +364,14 @@ def main():
     try:
         import backtest
         backtest.maybe_run(series, sorted(h["days"]), force=os.environ.get("FORCE_BT") == "1")
-        ai = backtest.score_today(series, sorted(h["days"]), fund, {x["c"]: x.get("ic", "") for x in res["items"]} | fetch_ind_cached(), warn=fetch_warn())
+        warn = fetch_warn()
+        ai = backtest.score_today(series, sorted(h["days"]), fund, {x["c"]: x.get("ic", "") for x in res["items"]} | fetch_ind_cached(), warn=warn)
+        try:
+            backtest.brk_today(series, sorted(h["days"]), fund, fetch_ind_cached(), warn)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print("即將突破名單失敗", e, flush=True)
         for it in res["items"]:
             if it["c"] in ai:
                 it["ai"] = ai[it["c"]]          # 數據分數（0～100 百分位）

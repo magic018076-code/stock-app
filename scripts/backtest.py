@@ -838,3 +838,89 @@ def update_track(series, last, recs, path="cache/recs.json"):
             "avg": round(sum(e["ret"] for e in done) / len(done), 2) if done else None,
             "open": len(opn), "open_avg": round(sum(e["ret"] for e in opn) / len(opn), 2) if opn else None, "since": min(db) if db else None}
     return {"sum": summ, "list": out[-120:][::-1]}
+
+
+def brk_today(series, dates, fund=None, ind=None, warn=None):
+    """每日「即將突破」名單：今日剛創一年新高（可進場）、接近一年新高（觀察）、近期突破的追蹤。輸出 out/brk.json"""
+    try:
+        bt = json.load(open("cache/bt.json", encoding="utf-8"))
+        P = bt.get("brk") or {}
+    except Exception:
+        P = {}
+    ks, hold = P.get("ks", 3.0), P.get("hold", 60)
+    last, warn, fs = dates[-1], warn or {}, (fund or {}).get("s", {})
+    di = {d: i for i, d in enumerate(dates)}
+    LOOK = 16                                   # 追蹤最近 15 個交易日的突破
+    today, recent, near = [], [], []
+    up = tot = 0
+    for c, rs in series.items():
+        if c.startswith("00") or len(rs) < 300 or rs[-1][0] != last:
+            continue
+        C = [r[6] for r in rs]; Hh = [r[4] for r in rs]; L = [r[5] for r in rs]; V = [r[7] for r in rs]; O = [r[3] for r in rs]
+        n = len(C)
+        tot += 1
+        up += 1 if C[-1] > sum(C[-60:]) / 60 else 0
+        if any(abs(C[i] / C[i - 1] - 1) > 0.11 for i in range(n - 60, n)):
+            continue
+        amt = C[-1] * sum(V[-20:]) / 20 / 1e5
+        if amt < LIQ:
+            continue
+        # 每一天「之前 250 天的最高價」與是否創新高（看最近 LOOK+20 天）
+        span = LOOK + 21
+        nh, hi_prev = {}, {}
+        for k in range(n - span, n):
+            if k < 251:
+                continue
+            hp = max(Hh[k - 250:k])
+            hi_prev[k] = hp
+            nh[k] = C[k] >= hp
+        def fresh(k):
+            return nh.get(k) and not any(nh.get(j) for j in range(k - 20, k))
+        def atr_at(k):
+            return sum(max(Hh[i] - L[i], abs(Hh[i] - C[i - 1]), abs(L[i] - C[i - 1])) for i in range(k - 13, k + 1)) / 14
+        f = fs.get(c, {})
+        info = {"c": c, "n": rs[-1][1], "m": rs[-1][2], "ic": (ind or {}).get(c, ""), "amt": round(amt, 2),
+                **{k: v for k, v in f.items() if k in ("pe", "dy", "rvy", "fs", "ts")}}
+        v20 = sum(V[-21:-1]) / 20
+        for k in range(n - LOOK, n):
+            if not fresh(k) or (C[k] / C[k - 1] - 1) * 100 >= 9.5:
+                continue
+            a = atr_at(k)
+            e = dict(info, d=rs[k][0], px=round(C[k], 2), atr=round(a, 2), stop=round(C[k] - ks * a, 2), nc=round(C[k] + a, 2),
+                     hi=round(hi_prev[k], 2), vr=round(V[k] / (sum(V[k - 20:k]) / 20), 1) if sum(V[k - 20:k]) else None,
+                     ch=round((C[k] / C[k - 1] - 1) * 100, 2))
+            if c in warn:
+                e["warn"] = warn[c]
+            if k == n - 1:
+                today.append(e)
+            else:
+                # 之後的實際走勢：隔天開盤買、跌破停損賣
+                if O[k + 1] > e["nc"]:
+                    e.update(st="未進場", why="開盤高於不追價")
+                else:
+                    entry, st, ex = O[k + 1], "持有中", C[-1]
+                    for j in range(k + 1, n):
+                        if L[j] <= e["stop"]:
+                            st, ex = "停損", min(e["stop"], O[j]); break
+                    e.update(st=st, e=round(entry, 2), ret=round((ex / entry - 1 - (COST if st == "停損" else 0)) * 100, 2), days=n - 1 - k, now=round(C[-1], 2))
+                recent.append(e)
+        # 接近一年新高（還沒突破，且近 20 天沒創過新高）：觀察名單
+        k = n - 1
+        if k in hi_prev and not nh[k] and not any(nh.get(j) for j in range(k - 20, k)):
+            dist = (hi_prev[k] / C[k] - 1) * 100
+            if 0 < dist <= 3:
+                a = atr_at(k)
+                near.append(dict(info, px=round(C[k], 2), ch=round((C[k] / C[k - 1] - 1) * 100, 2), hi=round(hi_prev[k], 2), dist=round(dist, 2),
+                                 atr=round(a, 2), vr=round(V[k] / v20, 1) if v20 else None, **({"warn": warn[c]} if c in warn else {})))
+    breadth = up / tot * 100 if tot else 50
+    today.sort(key=lambda e: -(e.get("vr") or 0))
+    near.sort(key=lambda e: e["dist"])
+    recent.sort(key=lambda e: (e["d"], e.get("ret") or 0), reverse=True)
+    held = [e for e in recent if e["st"] in ("持有中", "停損")]
+    summ = {"n": len(held), "win": round(sum(1 for e in held if e["ret"] > 0) / len(held) * 100, 1) if held else None,
+            "avg": round(sum(e["ret"] for e in held) / len(held), 2) if held else None}
+    res = {"date": last, "breadth": round(breadth, 1), "plan": {k: P.get(k) for k in ("sig", "hold", "ks", "trail", "cost", "liq", "all", "states", "years")} if P else None,
+           "today": today, "near": near[:80], "recent": recent[:120], "rsum": summ}
+    os.makedirs("out", exist_ok=True)
+    json.dump(res, open("out/brk.json", "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
+    print(f"即將突破：今日突破 {len(today)} 檔、接近新高 {len(near)} 檔、近 15 日突破 {len(recent)} 筆（{summ}）", flush=True)
