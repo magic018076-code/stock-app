@@ -10,7 +10,7 @@ import json, os, time, datetime as dt
 
 TW = dt.timezone(dt.timedelta(hours=8))
 H = 20  # 看之後幾個交易日
-VER = 8  # 回測程式版本；改版時自動重跑
+VER = 9  # 回測程式版本；改版時自動重跑
 
 
 def frames(series, dates):
@@ -210,6 +210,10 @@ def run(series, dates):
                 model["test_base"]["win"], model["test_base"]["avg"], model["test_top"]["win"], model["test_top"]["avg"], model["test_top5"]["win"], model["test_top5"]["avg"]), flush=True)
         model.pop("_te", None)
         if sig_i:
+            try:
+                diagnose(O, C, V, np.concatenate(sig_i), np.concatenate(sig_j), np.concatenate(sig_s), np.concatenate(pool_pr), breadth.values, dates)
+            except Exception as e:
+                import traceback; traceback.print_exc()
             plan = plan_backtest(O, Hh, L, C, V, np.concatenate(sig_i), np.concatenate(sig_j), np.concatenate(sig_s), dates)
     except Exception as e:
         import traceback
@@ -287,6 +291,59 @@ COST = 0.00585   # 買賣手續費 0.1425%×2 ＋ 證交稅 0.3%
 LIQ = 0.2        # 日均成交金額至少 0.2 億（2,000 萬）才推薦
 TIERS = (("s", 0, 3), ("b", 3, 6), ("w", 6, 12))   # 依當天排名：前 3%、3～6%、6～12%
 HOLD = 20
+
+
+def diagnose(O, C, V, si, sj, ss, spr, breadth, dates):
+    """找出優勢在哪個環節消失：流動性、隔天開盤進場、成本、每天選 vs 只在超跌時選"""
+    import numpy as np, pandas as pd
+    Cv, Ov = C.values, O.values
+    amt = (C * V.rolling(20).mean() / 1e5).values[si, sj]
+    N = len(dates)
+    ok = si + HOLD < N
+    si, sj, ss, spr, amt = si[ok], sj[ok], ss[ok], spr[ok], amt[ok]
+    cc = Cv[si + HOLD, sj] / Cv[si, sj] - 1
+    oc = Cv[si + HOLD, sj] / Ov[si + 1, sj] - 1 - COST
+    gapo = Ov[si + 1, sj] / Cv[si, sj] - 1
+    br = breadth[si]
+    yrs = np.array([int(dates[i][:4]) for i in si])
+
+    def drank(mask):
+        idx = np.flatnonzero(mask)
+        o = idx[np.lexsort((-ss[idx], si[idx]))]
+        d = si[o]
+        st = np.r_[0, np.flatnonzero(np.diff(d)) + 1]
+        cnt = np.diff(np.r_[st, len(d)])
+        rk = np.full(len(si), 999.0)
+        rk[o] = (np.arange(len(o)) - np.repeat(st, cnt)) / np.repeat(cnt, cnt) * 100
+        return rk
+
+    def show(name, m, r):
+        v = r[m & ~np.isnan(r)]
+        if len(v):
+            print("  診斷｜%-34s n=%6d 勝率 %.1f%% 平均 %+.2f%% 中位 %+.2f%%" % (name, len(v), (v > 0).mean() * 100, v.mean() * 100, np.median(v) * 100), flush=True)
+
+    allm = np.ones(len(si), bool)
+    liq = amt >= LIQ
+    rk_all, rk_liq = drank(allm), drank(liq)
+    show("全部低檔股 收盤→20日收盤", allm, cc)
+    show("每日前3%（不管流動性）收盤→收盤", rk_all < 3, cc)
+    show("每日前3%（不管流動性）隔天開盤→ 扣成本", rk_all < 3, oc)
+    show("每日前3%（有流動性）收盤→收盤", rk_liq < 3, cc)
+    show("每日前3%（有流動性）隔天開盤 扣成本", rk_liq < 3, oc)
+    show("分數前10%（歷史百分位）收盤→收盤", spr >= 90, cc)
+    show("分數前10% 隔天開盤 扣成本", spr >= 90, oc)
+    show("分數前10%＋有流動性 隔天開盤 扣成本", (spr >= 90) & liq, oc)
+    show("分數前5%＋有流動性 隔天開盤 扣成本", (spr >= 95) & liq, oc)
+    show("分數前10% 隔天開盤跳空幅度", spr >= 90, gapo)
+    for lo, hi in ((0, 0.05), (0.05, 0.2), (0.2, 1), (1, 1e9)):
+        show(f"分數前10% 成交金額 {lo}～{hi if hi < 1e9 else '∞'} 億 開盤扣成本", (spr >= 90) & (amt >= lo) & (amt < hi), oc)
+    for lo, hi in ((0, 15), (15, 25), (25, 40), (40, 60), (60, 101)):
+        show(f"有流動性全部｜大盤站上季線 {lo}～{hi}% 開盤扣成本", liq & (br >= lo) & (br < hi), oc)
+        show(f"  同上＋每日前10%", (rk_liq < 10) & (br >= lo) & (br < hi), oc)
+    for y in np.unique(yrs):
+        show(f"{y} 有流動性全部 開盤扣成本", liq & (yrs == y), oc)
+        show(f"{y} 分數前10%＋有流動性", (spr >= 90) & liq & (yrs == y), oc)
+        show(f"{y} 大盤<25%＋有流動性＋每日前10%", (rk_liq < 10) & (br < 25) & (yrs == y), oc)
 
 
 def plan_backtest(O, Hh, L, C, V, si, sj, ss, dates):
