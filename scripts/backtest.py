@@ -10,7 +10,7 @@ import json, os, time, datetime as dt
 
 TW = dt.timezone(dt.timedelta(hours=8))
 H = 20  # 看之後幾個交易日
-VER = 11  # 回測程式版本；改版時自動重跑
+VER = 12  # 回測程式版本；改版時自動重跑
 
 
 def frames(series, dates):
@@ -140,8 +140,9 @@ def run(series, dates):
         sug["buckets"].append([lab, lo, stats(RB[k], XB[k])])
 
     # ---------- 突破研究：各種「突破」型態照實際操作賺不賺 ----------
+    brk = None
     try:
-        breakout_study(O, Hh, L, C, V, dates)
+        brk = momentum_plan(O, Hh, L, C, V, dates)
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -229,7 +230,7 @@ def run(series, dates):
         print("模型校準失敗", e, flush=True)
 
     out = {"asof": dates[-1], "from": dates[250] if len(dates) > 250 else dates[0], "days": H,
-           "base": base, "rise": rise, "sug": sug, "model": model, "model60": model60, "vol_study": vol_study, "plan": plan, "ver": VER, "secs": round(time.time() - t0)}
+           "base": base, "rise": rise, "sug": sug, "model": model, "model60": model60, "vol_study": vol_study, "plan": plan, "brk": brk, "ver": VER, "secs": round(time.time() - t0)}
     print(f"回測完成：{out['from']}～{out['asof']}，全市場 {base['n']} 筆，即將起漲候選 {rise['all']['n']} 筆，建議買進候選 {sug['all']['n']} 筆，{out['secs']} 秒", flush=True)
     return out
 
@@ -372,6 +373,127 @@ def breakout_study(O, Hh, L, C, V, dates):
         print("  突破｜%-26s n=%7d｜5日 %s｜10日 %s｜20日 %s｜大盤<25 %s｜25-40 %s｜40-60 %s｜>60 %s｜賺錢年 %d/%d 最差年 %+.1f%%" % (
             name, len(v20_), f(v5_[~np.isnan(v5_)]), f(v10_[~np.isnan(v10_)]), f(v20_), parts[0], parts[1], parts[2], parts[3],
             sum(1 for y in ys if y > 0), len(ys), min(ys) if ys else 0), flush=True)
+
+
+BRK_STATES = ((0, 25), (25, 40), (40, 60), (60, 101))
+
+
+def brk_signals(Hh, L, C, V):
+    """強勢股創新高突破的訊號（回測和每日選股共用同一套定義）"""
+    import numpy as np, pandas as pd
+    prev = C.shift(1)
+    tr = pd.concat([(Hh - L).stack(), (Hh - prev).abs().stack(), (L - prev).abs().stack()], axis=1).max(axis=1).unstack().reindex(index=C.index, columns=C.columns)
+    atr = tr.rolling(14).mean()
+    hi250 = Hh.rolling(250, min_periods=200).max()
+    ch = C.pct_change() * 100
+    amt = C * V.rolling(20).mean() / 1e5
+    jump = C.pct_change().abs().rolling(60, min_periods=1).max() > 0.11
+    base = (amt >= LIQ) & ~jump & C.notna() & (ch < 9.5) & atr.notna()
+    nh250 = C >= hi250.shift(1)                               # 收盤創一年新高
+    nh120 = C > C.shift(1).rolling(120).max()                 # 收盤創 120 日新高
+    fresh = lambda x: x & ~(x.shift(1).rolling(20).max().fillna(0) > 0)   # 前 20 天沒出現過＝剛突破
+    m20, m60 = C.rolling(20).mean(), C.rolling(60).mean()
+    lo250 = L.rolling(250, min_periods=200).min()
+    pos = (C - lo250) / (hi250 - lo250) * 100
+    sig = {"J": base & nh250, "Jf": base & fresh(nh250), "E": base & nh120, "Ef": base & fresh(nh120),
+           "I": base & (pos >= 70) & (L <= m20) & (C >= m20) & (m20 > m60)}
+    breadth = ((C > m60).sum(axis=1) / C.notna().sum(axis=1) * 100)
+    return sig, atr, breadth, V / V.rolling(20).mean().shift(1), pos
+
+
+def momentum_plan(O, Hh, L, C, V, dates):
+    """強勢股創新高：測試停損、移動停利、持有天數的組合（隔天開盤買，扣成本）"""
+    import numpy as np
+    sig, atr, breadth, vr, pos = brk_signals(Hh, L, C, V)
+    Cv, Hv, Lv, Ov, Av, br = C.values, Hh.values, L.values, O.values, atr.values, breadth.values
+    N = len(dates)
+    MAXH = 60
+    yrs_all = np.array([int(d[:4]) for d in dates])
+
+    def prep(mask):
+        si, sj = np.where(mask.values)
+        ok = si + MAXH < N
+        si, sj = si[ok], sj[ok]
+        win = si[:, None] + np.arange(1, MAXH + 1)[None, :]
+        return si, sj, Ov[win, sj[:, None]], Hv[win, sj[:, None]], Lv[win, sj[:, None]], Cv[win, sj[:, None]]
+
+    def sim(P, ks, trail, hold):
+        si, sj, Ow, Hw, Lw, Cw = P
+        px, a = Cv[si, sj], Av[si, sj]
+        entry = Ow[:, 0]
+        ok = ~np.isnan(entry) & (entry <= px + a)                  # 開盤跳空超過 1 ATR 不追
+        stop = px - ks * a
+        alive = ok.copy()
+        ex = np.full(len(px), np.nan)
+        days = np.zeros(len(px))
+        peak = px.copy()
+        for d in range(hold):
+            lo, op, cl = Lw[:, d], Ow[:, d], Cw[:, d]
+            hit = alive & (lo <= stop)
+            ex[hit] = np.minimum(stop[hit], op[hit]); days[hit] = d + 1
+            alive &= ~hit
+            if trail:
+                peak = np.where(alive & ~np.isnan(cl), np.maximum(peak, cl), peak)
+                stop = np.where(alive, np.maximum(stop, peak - trail * a), stop)
+        last = Cw[:, hold - 1]
+        for d in range(hold - 2, -1, -1):
+            last = np.where(np.isnan(last), Cw[:, d], last)
+        ex[alive] = last[alive]; days[alive] = hold
+        ret = ex / entry - 1 - COST
+        m = ok & ~np.isnan(ret)
+        return ret[m], days[m], si[m]
+
+    def summ(ret, days, si):
+        if len(ret) < 50:
+            return {"n": int(len(ret))}
+        w, l = ret[ret > 0], ret[ret <= 0]
+        yy = yrs_all[si]
+        ys = [float(ret[yy == y].mean() * 100) for y in np.unique(yy) if (yy == y).sum() >= 30]
+        d = np.unique(si)
+        return {"n": int(len(ret)), "win": round(float((ret > 0).mean() * 100), 1), "avg": round(float(ret.mean() * 100), 2),
+                "aw": round(float(w.mean() * 100), 2), "al": round(float(l.mean() * 100), 2), "days": round(float(days.mean()), 1),
+                "yp": sum(1 for y in ys if y > 0), "yn": len(ys), "worst": round(min(ys), 2) if ys else None, "ndays": int(len(d))}
+
+    out, best = {"grid": []}, None
+    preps = {k: prep(m) for k, m in sig.items()}
+    for k in ("Jf", "Ef", "J", "E", "I"):
+        for hold in (20, 40, 60):
+            for ks in (2.0, 3.0):
+                for trail in (0, 3.0, 4.0):
+                    st = summ(*sim(preps[k], ks, trail, hold))
+                    if st["n"] < 50:
+                        continue
+                    out["grid"].append([k, hold, ks, trail, st])
+                    print("  強勢突破｜%-3s 抱%2d天 停損%.0fATR 移動停利%s｜n=%6d 勝率 %.1f%% 平均 %+.2f%%（賺 %+.1f%%／賠 %+.1f%%）抱 %.0f 天｜賺錢年 %d/%d 最差 %+.1f%%｜每日平均 %+.3f%%" % (
+                        k, hold, ks, f"{trail:.0f}ATR" if trail else "無  ", st["n"], st["win"], st["avg"], st["aw"], st["al"], st["days"], st["yp"], st["yn"], st["worst"], st["avg"] / st["days"]), flush=True)
+                    key = st["avg"] / st["days"] * 20 + 0.3 * st["worst"] / st["days"] * 20   # 每 20 天的報酬，並看重最差年
+                    if k in ("Jf", "Ef") and (best is None or key > best[0]):
+                        best = (key, k, hold, ks, trail)
+    if best:
+        _, k, hold, ks, trail = best
+        out.update(sig=k, hold=hold, ks=ks, trail=trail, cost=COST * 100, liq=LIQ)
+        P = preps[k]
+        ret, days, si = sim(P, ks, trail, hold)
+        out["all"] = summ(ret, days, si)
+        out["states"] = []
+        for lo, hi in BRK_STATES:
+            m = (br[si] >= lo) & (br[si] < hi)
+            st = summ(ret[m], days[m], si[m])
+            out["states"].append([lo, hi, st])
+            print(f"  強勢突破 最佳 {k} 抱{hold} 停損{ks} 移動{trail}｜大盤 {lo}～{hi}%：{st}", flush=True)
+        yy = yrs_all[si]
+        out["years"] = [[int(y), summ(ret[yy == y], days[yy == y], si[yy == y])] for y in np.unique(yy)]
+        for y, st in out["years"]:
+            print(f"     {y}：{st}", flush=True)
+        # 帶量與否
+        vv = vr.values[P[0], P[1]]
+        okm = ~np.isnan(P[2][:, 0]) & (P[2][:, 0] <= Cv[P[0], P[1]] + Av[P[0], P[1]])
+        vv = vv[okm][: len(ret)] if okm.sum() == len(ret) else None
+        if vv is not None:
+            for lo, hi in ((0, 1), (1, 2), (2, 99)):
+                m = (vv >= lo) & (vv < hi)
+                print(f"     量 {lo}～{hi} 倍：{summ(ret[m], days[m], si[m])}", flush=True)
+    return out
 
 
 def diagnose(O, C, V, si, sj, ss, spr, breadth, dates):
