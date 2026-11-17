@@ -169,6 +169,26 @@ def fetch_ind_cached():
     return _IND
 
 
+def fetch_warn():
+    """處置股（被交易所限制交易的股票）：不列入建議買進。回傳 {代號: 原因}"""
+    import re
+    out = {}
+    for url, why in (("https://openapi.twse.com.tw/v1/announcement/punish", "處置股"),
+                     ("https://www.tpex.org.tw/openapi/v1/tpex_disposal_information", "處置股")):
+        try:
+            j = get(url, tries=2)
+            n0 = len(out)
+            for r in j or []:
+                for k, v in r.items():
+                    if ("Code" in k or "代號" in k) and re.fullmatch(r"\d{4}", str(v).strip()):
+                        out[str(v).strip()] = why
+                        break
+            print(f"  {why} {url.split('/')[2]}：{len(out) - n0} 檔", flush=True)
+        except Exception as e:
+            print("  處置股資料失敗", e, flush=True)
+    return out
+
+
 def fetch_industry():
     """上市、上櫃公司的產業別代碼（App 用來分科技股／傳產股／金融股）"""
     out = {}
@@ -344,7 +364,7 @@ def main():
     try:
         import backtest
         backtest.maybe_run(series, sorted(h["days"]), force=os.environ.get("FORCE_BT") == "1")
-        ai = backtest.score_today(series, sorted(h["days"]), fund, {x["c"]: x.get("ic", "") for x in res["items"]} | fetch_ind_cached())
+        ai = backtest.score_today(series, sorted(h["days"]), fund, {x["c"]: x.get("ic", "") for x in res["items"]} | fetch_ind_cached(), warn=fetch_warn())
         for it in res["items"]:
             if it["c"] in ai:
                 it["ai"] = ai[it["c"]]          # 數據分數（0～100 百分位）

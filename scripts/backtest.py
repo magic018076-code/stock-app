@@ -10,7 +10,7 @@ import json, os, time, datetime as dt
 
 TW = dt.timezone(dt.timedelta(hours=8))
 H = 20  # 看之後幾個交易日
-VER = 7  # 回測程式版本；改版時自動重跑
+VER = 8  # 回測程式版本；改版時自動重跑
 
 
 def frames(series, dates):
@@ -19,13 +19,13 @@ def frames(series, dates):
     cols = [c for c, rows in series.items() if len(rows) >= 300 and not c.startswith("00")]
     import numpy as np
     N, M = len(dates), len(cols)
-    C, Hh, L, V = (np.full((N, M), np.nan) for _ in range(4))
+    C, Hh, L, V, O = (np.full((N, M), np.nan) for _ in range(5))
     for j, c in enumerate(cols):
         for r in series[c]:
             i = idx[r[0]]
-            Hh[i, j], L[i, j], C[i, j], V[i, j] = r[4], r[5], r[6], r[7]
+            O[i, j], Hh[i, j], L[i, j], C[i, j], V[i, j] = r[3], r[4], r[5], r[6], r[7]
     mk = lambda a: pd.DataFrame(a, index=dates, columns=cols)
-    return mk(C), mk(Hh), mk(L), mk(V)
+    return mk(C), mk(Hh), mk(L), mk(V), mk(O)
 
 
 def rev_frame(C):
@@ -71,7 +71,7 @@ def stats(ret, mx):
 def run(series, dates):
     import numpy as np, pandas as pd
     t0 = time.time()
-    C, Hh, L, V = frames(series, dates)
+    C, Hh, L, V, O = frames(series, dates)
     fwd = C.shift(-H) / C - 1                        # 20 日後報酬
     fmx = Hh[::-1].rolling(H, min_periods=H).max()[::-1].shift(-1) / C - 1  # 之後 20 日內最高漲幅
     valid = fwd.notna() & C.notna()
@@ -171,7 +171,7 @@ def run(series, dates):
         print("量縮研究失敗", e, flush=True)
 
     # ---------- 用資料校準評分（模型 v2）：更多條件＋逐年檢驗 ----------
-    model = model60 = None
+    model = model60 = plan = None
     try:
         rvy = rev_frame(C)                                   # 當時已公布的最新月營收年增率
         above = (C > m60)
@@ -189,10 +189,12 @@ def run(series, dates):
         y0 = int(dates[0][:4]) + 4
         wf = []
         pool_pr, pool_y, pool_mx = [], [], []
+        sig_i, sig_j, sig_s = [], [], []
         for Y in range(y0, int(dates[-1][:4]) + 1):
             r = fit_model(F, fwd, fmx, U, dates, split=f"{Y}-01-01", end=f"{Y + 1}-01-01", quiet=True)
             if r and r.get("_te") is not None:
                 pool_pr.append(r["_te"][0]); pool_y.append(r["_te"][1]); pool_mx.append(r["_te"][2])
+                sig_i.append(r["_te"][3]); sig_j.append(r["_te"][4]); sig_s.append(r["_te"][5])
                 wf.append([Y, r["test_base"], r["test_top"], r["test_top5"]])
                 print(f"  逐年檢驗 {Y}：全部 上漲 {r['test_base'].get('win')}% 平均 {r['test_base'].get('avg')}%｜前 10% 上漲 {r['test_top'].get('win')}% 平均 {r['test_top'].get('avg')}%", flush=True)
         # 實際使用的模型：用全部已知結果的資料學習
@@ -207,13 +209,15 @@ def run(series, dates):
             print("模型 v2 逐年檢驗合計：全部 上漲 %s%% 平均 %s%%｜前 10%% 上漲 %s%% 平均 %s%%｜前 5%% 上漲 %s%% 平均 %s%%" % (
                 model["test_base"]["win"], model["test_base"]["avg"], model["test_top"]["win"], model["test_top"]["avg"], model["test_top5"]["win"], model["test_top5"]["avg"]), flush=True)
         model.pop("_te", None)
+        if sig_i:
+            plan = plan_backtest(O, Hh, L, C, V, np.concatenate(sig_i), np.concatenate(sig_j), np.concatenate(sig_s), dates)
     except Exception as e:
         import traceback
         traceback.print_exc()
         print("模型校準失敗", e, flush=True)
 
     out = {"asof": dates[-1], "from": dates[250] if len(dates) > 250 else dates[0], "days": H,
-           "base": base, "rise": rise, "sug": sug, "model": model, "model60": model60, "vol_study": vol_study, "ver": VER, "secs": round(time.time() - t0)}
+           "base": base, "rise": rise, "sug": sug, "model": model, "model60": model60, "vol_study": vol_study, "plan": plan, "ver": VER, "secs": round(time.time() - t0)}
     print(f"回測完成：{out['from']}～{out['asof']}，全市場 {base['n']} 筆，即將起漲候選 {rise['all']['n']} 筆，建議買進候選 {sug['all']['n']} 筆，{out['secs']} 秒", flush=True)
     return out
 
@@ -272,11 +276,100 @@ def fit_model(F, fwd, fmx, U, dates, split="2023-01-01", end=None, quiet=False):
     res = {"feats": feats, "q": q, "split": split, "train": [min(di[rows[0]][tr].tolist()), max(di[rows[0]][tr].tolist())],
            "test": [min(di[rows[0]][te].tolist()), max(di[rows[0]][te].tolist())] if te.sum() else None, "test_base": st(te), "test_dec": dec,
            "test_top": st(te & (pr >= 90)), "test_top5": st(te & (pr >= 95)), "test_bot": st(te & (pr < 10))}
-    res["_te"] = (pr[te], y[te], ymx[te]) if te.sum() else None
+    res["_te"] = (pr[te], y[te], ymx[te], rows[0][te], rows[1][te], score[te]) if te.sum() else None
     if not quiet:
         print("模型檢驗：全部 上漲 %s%% 平均 %s%%｜前 10%% 上漲 %s%% 平均 %s%%" % (
             res["test_base"].get("win"), res["test_base"].get("avg"), res["test_top"].get("win"), res["test_top"].get("avg")), flush=True)
     return res
+
+
+COST = 0.00585   # 買賣手續費 0.1425%×2 ＋ 證交稅 0.3%
+LIQ = 0.2        # 日均成交金額至少 0.2 億（2,000 萬）才推薦
+TIERS = (("s", 0, 3), ("b", 3, 6), ("w", 6, 12))   # 依當天排名：前 3%、3～6%、6～12%
+HOLD = 20
+
+
+def plan_backtest(O, Hh, L, C, V, si, sj, ss, dates):
+    """照實際操作模擬「建議買進」：訊號當天收盤後選股 → 隔天開盤買（開太高不追）→ 碰停損賣、碰目標賣、最多抱 20 天。
+    訊號用逐年檢驗的分數（每年只用之前的資料學習），報酬已扣手續費和證交稅。"""
+    import numpy as np, pandas as pd
+    Cv, Hv, Lv, Ov = C.values, Hh.values, L.values, O.values
+    prev = C.shift(1)
+    tr = pd.concat([(Hh - L).stack(), (Hh - prev).abs().stack(), (L - prev).abs().stack()], axis=1).max(axis=1).unstack().reindex(index=C.index, columns=C.columns)
+    atr = tr.rolling(14).mean().values
+    amt = (C * V.rolling(20).mean() / 1e5).values
+    ok = (amt[si, sj] >= LIQ) & ~np.isnan(atr[si, sj])
+    si, sj, ss = si[ok], sj[ok], ss[ok]
+    # 每天在有流動性的低檔股裡排名（百分比，0＝最高分）
+    order = np.lexsort((-ss, si))
+    si, sj, ss = si[order], sj[order], ss[order]
+    start = np.r_[0, np.flatnonzero(np.diff(si)) + 1]
+    cnt = np.diff(np.r_[start, len(si)])
+    rank = (np.arange(len(si)) - np.repeat(start, cnt)) / np.repeat(cnt, cnt) * 100
+    keep = rank < TIERS[-1][2]
+    si, sj, rank = si[keep], sj[keep], rank[keep]
+    win = si[:, None] + np.arange(1, HOLD + 1)[None, :]
+    okw = win[:, -1] < len(dates)
+    si, sj, rank, win = si[okw], sj[okw], rank[okw], win[okw]
+    Ow, Hw, Lw, Cw = Ov[win, sj[:, None]], Hv[win, sj[:, None]], Lv[win, sj[:, None]], Cv[win, sj[:, None]]
+    px, a = Cv[si, sj], atr[si, sj]
+    yrs = np.array([int(dates[i][:4]) for i in si])
+    # 最後一天沒有收盤價（停牌）就用之前最後一個有效收盤
+    lastc = pd.DataFrame(Cw).ffill(axis=1).values[:, -1]
+
+    def sim(ks, kt, sel=None):
+        stop = px - ks * a
+        tgt = px + kt * a if kt else np.full(len(px), np.inf)
+        entry = Ow[:, 0]
+        valid = ~np.isnan(entry) & (entry <= px + a) & (entry > stop) & ~np.isnan(lastc)
+        hs, ht = Lw <= stop[:, None], Hw >= tgt[:, None]
+        fs = np.where(hs.any(1), hs.argmax(1), 99)
+        ft = np.where(ht.any(1), ht.argmax(1), 99)
+        r = np.arange(len(px))
+        ex_stop = np.minimum(stop, Ow[r, np.minimum(fs, HOLD - 1)])       # 跳空跌破停損就用開盤價
+        ex_tgt = np.maximum(tgt, Ow[r, np.minimum(ft, HOLD - 1)])
+        ex = np.where(fs <= ft, np.where(fs < 99, ex_stop, lastc), ex_tgt)   # 同一天都碰到，保守算停損
+        kind = np.where(fs <= ft, np.where(fs < 99, 0, 2), 1)                # 0 停損 1 達標 2 到期
+        days = np.where(kind == 0, fs, np.where(kind == 1, ft, HOLD - 1)) + 1
+        ret = ex / entry - 1 - COST
+        m = valid if sel is None else valid & sel
+        return ret[m], kind[m], days[m], yrs[m]
+
+    def summ(ret, kind, days):
+        if not len(ret):
+            return {"n": 0}
+        w, l = ret[ret > 0], ret[ret <= 0]
+        return {"n": int(len(ret)), "win": round(float((ret > 0).mean() * 100), 1), "avg": round(float(ret.mean() * 100), 2),
+                "med": round(float(np.median(ret) * 100), 2), "aw": round(float(w.mean() * 100), 2) if len(w) else 0, "al": round(float(l.mean() * 100), 2) if len(l) else 0,
+                "stop": round(float((kind == 0).mean() * 100), 1), "tgt": round(float((kind == 1).mean() * 100), 1), "days": round(float(days.mean()), 1)}
+
+    top = rank < TIERS[0][2]
+    grid, best = [], None
+    for ks in (1.5, 2.0, 2.5, 3.0):
+        for kt in (2.0, 3.0, 4.0, 6.0, 0):
+            ret, kind, days, yy = sim(ks, kt, top)
+            st = summ(ret, kind, days)
+            if not st["n"]:
+                continue
+            ys = [float(ret[yy == y].mean()) for y in np.unique(yy)]
+            st["worst"] = round(min(ys) * 100, 2)            # 最差那一年的平均
+            grid.append([ks, kt, st])
+            key = st["avg"] + 0.5 * st["worst"]               # 平均要高，最差的年也不能太差
+            if best is None or key > best[0]:
+                best = (key, ks, kt)
+    _, ks, kt = best
+    out = {"ks": ks, "kt": kt, "hold": HOLD, "cost": COST * 100, "liq": LIQ, "grid": grid, "tiers": {}, "years": []}
+    for name, lo, hi in TIERS:
+        ret, kind, days, yy = sim(ks, kt, (rank >= lo) & (rank < hi))
+        out["tiers"][name] = summ(ret, kind, days)
+    ret, kind, days, yy = sim(ks, kt, top)
+    for y in np.unique(yy):
+        out["years"].append([int(y), summ(ret[yy == y], kind[yy == y], days[yy == y])])
+    t = out["tiers"]["s"]
+    print(f"交易計畫回測：停損 {ks} ATR、目標 {kt or '不設'} ATR｜前 3%：{t['n']} 筆 勝率 {t['win']}% 平均每筆 {t['avg']}%（賺 {t['aw']}%／賠 {t['al']}%）停損出場 {t['stop']}% 達標 {t['tgt']}% 平均抱 {t['days']} 天", flush=True)
+    for y, st in out["years"]:
+        print(f"   {y}：{st['n']} 筆 勝率 {st['win']}% 平均 {st['avg']}%", flush=True)
+    return out
 
 
 def maybe_run(series, dates, force=False):
@@ -303,15 +396,16 @@ def maybe_run(series, dates, force=False):
         json.dump(old, open("out/bt.json", "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
 
 
-def score_today(series, dates, fund=None, ind=None, top=150):
+def score_today(series, dates, fund=None, ind=None, top=150, warn=None):
     """用回測校準好的模型（20 日），幫最新一個交易日全市場低檔區股票打分數。
     回傳 {代號: 分數百分位}，並輸出 out/ai.json（分數最高的股票清單）。"""
     import bisect, json
     try:
         bt = json.load(open("cache/bt.json", encoding="utf-8"))
         m = bt.get("model")
+        plan = bt.get("plan") or {}
     except Exception:
-        m = None
+        m, plan = None, {}
     if not m:
         return {}
     last = dates[-1]
@@ -374,13 +468,78 @@ def score_today(series, dates, fund=None, ind=None, top=150):
         out[c] = pr
         rows.append({"c": c, "n": rs[-1][1], "m": rs[-1][2], "px": round(px, 2), "ch": round(x["ch"], 2), "ai": pr,
                      "raw": round(sc, 2), "ic": (ind or {}).get(c, ""), "pts": sorted(pts, key=lambda z: -z[1])[:6],
-                     "v20": round(v20), "pos": round(pos, 1), "atr": round(atr, 2), "lo10": round(min(L[-10:]), 2), "d60": round(x["d60"], 1), "r60": round(x["r60"], 1), "dd": round(x["dd"], 1),
+                     "v20": round(v20), "pos": round(pos, 1), "atr": round(atr, 2), "amt": round(x["amt"], 2), "lo10": round(min(L[-10:]), 2), "d60": round(x["d60"], 1), "r60": round(x["r60"], 1), "dd": round(x["dd"], 1),
                      **{k: v for k, v in ((fund or {}).get("s", {}).get(c, {})).items() if k in ("pe", "dy", "pb", "rvy", "fs", "ts")}})
     rows.sort(key=lambda r: -r["raw"])
-    res = {"date": last, "model_test": m.get("test"), "dec": m.get("test_dec"), "base": m.get("test_base"),
+    # ---------- 建議買進：有流動性、不是處置股的，依今天排名分級，並附交易計畫 ----------
+    ks, kt = plan.get("ks", 2.0), plan.get("kt", 4.0)
+    warn = warn or {}
+    liquid = [r for r in rows if r["amt"] >= LIQ]
+    for i, r in enumerate(liquid):
+        rk = i / len(liquid) * 100
+        if r["c"] in warn:
+            r["warn"] = warn[r["c"]]
+            continue
+        for name, lo, hi in TIERS:
+            if lo <= rk < hi:
+                r["tier"] = name
+        if "tier" in r:
+            r["stop"] = round(r["px"] - ks * r["atr"], 2)
+            r["tgt"] = round(r["px"] + kt * r["atr"], 2) if kt else None
+            r["nc"] = round(r["px"] + r["atr"], 2)       # 不追價：隔天開盤高於這個價就不買
+    recs = [r for r in rows if r.get("tier")]
+    track = update_track(series, last, recs)
+    keep = {r["c"] for r in rows[:top]} | {r["c"] for r in recs}
+    res = {"date": last, "plan": {k: plan.get(k) for k in ("ks", "kt", "hold", "cost", "liq", "tiers", "years")} if plan else None, "track": track, "model_test": m.get("test"), "dec": m.get("test_dec"), "base": m.get("test_base"),
            "top5": m.get("test_top5"), "top10": m.get("test_top"), "wf": m.get("wf"), "breadth": round(breadth, 1),
-           "items": rows[:top], "n": len(rows)}
+           "items": [r for r in rows if r["c"] in keep], "n": len(rows), "nliq": len(liquid)}
     os.makedirs("out", exist_ok=True)
     json.dump(res, open("out/ai.json", "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
-    print(f"數據評分：{len(rows)} 檔，精選前 {min(top, len(rows))} 檔", flush=True)
+    print(f"數據評分：{len(rows)} 檔（有流動性 {len(liquid)} 檔），建議買進 " + "／".join(f"{sum(1 for r in recs if r['tier'] == t[0])}" for t in TIERS) + f" 檔，處置股排除 {sum(1 for r in rows if r.get('warn'))} 檔", flush=True)
     return out
+
+
+def update_track(series, last, recs, path="cache/recs.json"):
+    """記錄每天的推薦，並用之後的實際走勢對答案（隔天開盤買、停損、目標、最多 20 天，扣手續費和稅）。"""
+    try:
+        db = json.load(open(path, encoding="utf-8"))
+    except Exception:
+        db = {}
+    db[last] = [{"c": r["c"], "n": r["n"], "t": r["tier"], "px": r["px"], "stop": r["stop"], "tgt": r["tgt"], "nc": r["nc"]} for r in recs if r["tier"] in ("s", "b")]
+    for d in sorted(db)[:-120]:
+        del db[d]
+    os.makedirs("cache", exist_ok=True)
+    json.dump(db, open(path, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
+    out = []
+    for d in sorted(db):
+        for r in db[d]:
+            rows = series.get(r["c"]) or []
+            i = next((k for k, x in enumerate(rows) if x[0] == d), None)
+            if i is None:
+                continue
+            k = rows[i][6] / r["px"] if r["px"] else 1      # 之後若有除權息，還原價會變，計畫價位跟著等比例調整
+            stop, nc = r["stop"] * k, r["nc"] * k
+            tgt = r["tgt"] * k if r.get("tgt") else float("inf")
+            after = rows[i + 1:i + 1 + HOLD]
+            e = {"d": d, "c": r["c"], "n": r["n"], "t": r["t"], "px": r["px"]}
+            if not after:
+                e.update(st="待進場")
+            elif after[0][3] > nc or after[0][3] <= stop:
+                e.update(st="未進場", why="開盤高於不追價" if after[0][3] > nc else "開盤已低於停損")
+            else:
+                entry, st, ex = after[0][3], None, None
+                for n_, x in enumerate(after):
+                    if x[5] <= stop:
+                        st, ex = "停損", min(stop, x[3]); break
+                    if x[4] >= tgt:
+                        st, ex = "達標", max(tgt, x[3]); break
+                if st is None:
+                    st, ex = ("到期", after[-1][6]) if len(after) >= HOLD else ("持有中", after[-1][6])
+                e.update(st=st, ret=round((ex / entry - 1 - (COST if st != "持有中" else 0)) * 100, 2), days=n_ + 1, e=round(entry / k, 2))
+            out.append(e)
+    done = [e for e in out if e["st"] in ("停損", "達標", "到期")]
+    opn = [e for e in out if e["st"] == "持有中"]
+    summ = {"n": len(done), "win": round(sum(1 for e in done if e["ret"] > 0) / len(done) * 100, 1) if done else None,
+            "avg": round(sum(e["ret"] for e in done) / len(done), 2) if done else None,
+            "open": len(opn), "open_avg": round(sum(e["ret"] for e in opn) / len(opn), 2) if opn else None, "since": min(db) if db else None}
+    return {"sum": summ, "list": out[-120:][::-1]}
