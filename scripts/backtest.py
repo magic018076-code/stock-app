@@ -10,7 +10,7 @@ import json, os, time, datetime as dt
 
 TW = dt.timezone(dt.timedelta(hours=8))
 H = 20  # 看之後幾個交易日
-VER = 6  # 回測程式版本；改版時自動重跑
+VER = 7  # 回測程式版本；改版時自動重跑
 
 
 def frames(series, dates):
@@ -139,6 +139,37 @@ def run(series, dates):
         k = (SB >= lo) & (SB < hi)
         sug["buckets"].append([lab, lo, stats(RB[k], XB[k])])
 
+    # ---------- 量縮研究：量縮後會不會比較容易漲？ ----------
+    vol_study = None
+    try:
+        fwd60 = C.shift(-60) / C - 1
+        fmx60 = Hh[::-1].rolling(60, min_periods=60).max()[::-1].shift(-1) / C - 1
+        vq = V.rolling(20).mean() / v120                     # 近月均量 ÷ 半年均量（<1 量縮）
+        rng20 = C.rolling(20).max() / C.rolling(20).min() - 1   # 近 20 日收盤振幅（價穩）
+        Ubase = (pos <= 60) & (v20 >= 100) & valid & fwd60.notna()
+        def g(name, cond):
+            m = (Ubase & cond).values
+            return [name, stats(fwd.values[m], fmx.values[m]), stats(fwd60.values[m], fmx60.values[m])]
+        shrink = vq < 0.7
+        vol_study = {"rows": [
+            g("低檔區全部（比較基準）", Ubase),
+            g("近月量 < 半年量 5 成（明顯量縮）", vq < 0.5),
+            g("近月量為半年量 5～7 成（量縮）", (vq >= 0.5) & (vq < 0.7)),
+            g("近月量為半年量 7～10 成", (vq >= 0.7) & (vq < 1.0)),
+            g("近月量為半年量 1～1.5 倍（量增）", (vq >= 1.0) & (vq < 1.5)),
+            g("近月量 > 半年量 1.5 倍（明顯量增）", vq >= 1.5),
+            g("量縮＋價穩（近 20 日振幅 8% 內）", shrink & (rng20 <= 0.08)),
+            g("量縮後，今天帶量（1.5 倍）上漲 2% 以上", shrink & (vr >= 1.5) & (ch >= 2)),
+            g("量縮＋價穩後，今天帶量突破 60 日高點", shrink.shift(1) & (rng20.shift(1) <= 0.10) & bo & (vr >= 1.5)),
+            g("量縮＋價穩＋站上季線", shrink & (rng20 <= 0.08) & (C >= m60)),
+        ]}
+        for r in vol_study["rows"]:
+            print("  量縮研究｜%-24s 20日：n=%s 上漲 %s%% 平均 %s%%｜60日：上漲 %s%% 平均 %s%%" % (r[0], r[1].get("n"), r[1].get("win"), r[1].get("avg"), r[2].get("win"), r[2].get("avg")), flush=True)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print("量縮研究失敗", e, flush=True)
+
     # ---------- 用資料校準評分（模型 v2）：更多條件＋逐年檢驗 ----------
     model = model60 = None
     try:
@@ -150,7 +181,7 @@ def run(series, dates):
              "u60": u60, "pos": pos, "r5": (C / C.shift(5) - 1) * 100, "r10": (C / C.shift(10) - 1) * 100,
              "r60": (C / C.shift(60) - 1) * 100, "dd": (C / hi250 - 1) * 100, "rng42": rng42 * 100, "bo": bo.astype(float),
              "gap": gap, "vol20": C.pct_change().rolling(20).std() * 100, "amt": (C * V.rolling(20).mean() / 1e5),
-             "rvy": rvy, "mkt": mkt}
+             "rvy": rvy, "mkt": mkt, "vq": V.rolling(20).mean() / v120}
         jump = C.pct_change().abs().rolling(60, min_periods=1).max() > 0.11   # 單日漲跌超過 11%＝資料斷層（未還原的減資等），排除
         extreme = ((C / hi250 - 1) * 100 < -75) | (rng42 * 100 > 150)   # 極端崩跌股（可能有重大問題），排除
         U = (pos <= 60) & (v20 >= 100) & valid & ~jump & ~extreme
@@ -182,12 +213,12 @@ def run(series, dates):
         print("模型校準失敗", e, flush=True)
 
     out = {"asof": dates[-1], "from": dates[250] if len(dates) > 250 else dates[0], "days": H,
-           "base": base, "rise": rise, "sug": sug, "model": model, "model60": model60, "ver": VER, "secs": round(time.time() - t0)}
+           "base": base, "rise": rise, "sug": sug, "model": model, "model60": model60, "vol_study": vol_study, "ver": VER, "secs": round(time.time() - t0)}
     print(f"回測完成：{out['from']}～{out['asof']}，全市場 {base['n']} 筆，即將起漲候選 {rise['all']['n']} 筆，建議買進候選 {sug['all']['n']} 筆，{out['secs']} 秒", flush=True)
     return out
 
 
-FEAT_NAME = {"r5": "近5日漲跌", "vol20": "波動度", "amt": "成交金額(億)", "rvy": "營收年增", "mkt": "大盤站上季線比例", "d60": "離季線", "slope": "季線方向", "m20": "站上月線", "ch": "今日漲跌", "vr": "今日量／20日均量", "u60": "季線下天數",
+FEAT_NAME = {"vq": "近月量／半年量", "r5": "近5日漲跌", "vol20": "波動度", "amt": "成交金額(億)", "rvy": "營收年增", "mkt": "大盤站上季線比例", "d60": "離季線", "slope": "季線方向", "m20": "站上月線", "ch": "今日漲跌", "vr": "今日量／20日均量", "u60": "季線下天數",
              "pos": "一年位置", "r10": "近10日漲跌", "r60": "近60日漲跌", "dd": "距一年高點", "rng42": "近2月振幅", "bo": "創60日新高", "gap": "月季線差距"}
 
 
