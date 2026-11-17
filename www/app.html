@@ -288,7 +288,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=43; // 介面版本，要和 ota.json 一致
+const UI_V=44; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:10,fs:"m"},store.get("settings",{}));
 if(S.int===20&&!S.intSet)S.int=10; // 舊預設 20 秒改成 10 秒（使用者自己選過的不動）
@@ -645,7 +645,8 @@ function sugCard([x,v]){
 }
 // 今天跌停（盤中即時跌幅 ≥9.5%，或最近收盤跌停）：賣壓未止，不建議買進
 function limDown(x){const r=rt[x.c],lv=r&&!r.stale&&isFinite(r.pct);return lv?(r.pct<=-9.5||(isFinite(r.w)&&r.w>0&&r.z<=r.w)):x.ch<=-9.5}
-const LIGHT={green:["🟢 綠燈・積極進場","#25d925","大盤嚴重超跌，歷史上是買低檔股最好的時機。建議分 2～3 批進場。"],yellow:["🟡 黃燈・小量分批","#ffb020","大盤偏弱、接近超跌。可以小量試單，等綠燈再加碼。"],red:["🔴 紅燈・觀望","#ff5a4a","大盤不上不下，買低檔股歷史上沒有優勢。建議等待。"],black:["⚫ 不買","#999","大盤強勢時，低檔股通常是弱勢股，歷史上平均是賠的。不建議買。"]};
+const LIGHT={green2:["🟢 綠燈・止跌回升","#25d925","大盤嚴重超跌，而且已經從低點回升。歷史上這是買低檔股最好的時機，可以積極進場。"],green:["🟢 綠燈・仍在探底","#8fd94a","大盤嚴重超跌，但還在破底。歷史上也是賺的，不過買了常會再跌一段，請分 2～3 批、不要一次買滿。"],rebound:["🟢 反彈初期・仍可進場","#4fd9a0","大盤剛從嚴重超跌回升，反彈還在初期。可以進場，但不要追高。"],yellow:["🟡 黃燈・小量試單","#ffb020","大盤偏弱但還沒到嚴重超跌。勝率只比一半多一點，最多小量試單，等綠燈再加碼。"],red:["🔴 紅燈・觀望","#ff5a4a","大盤不上不下，買低檔股歷史上沒有優勢。建議等待。"],black:["⚫ 不買","#999","大盤強勢時，低檔股通常是弱勢股，歷史上平均是賠的。不建議買。"]};
+const LGO=["green2","green","rebound","yellow"];
 // 近 120 日大盤狀態小圖（越低越超跌；虛線是 15%、25%）
 function bhSpark(){const a=aiD&&aiD.bh||[];if(a.length<10)return "";const W=340,H=46,x=i=>i/(a.length-1)*W,y=v=>H-Math.min(v,80)/80*H;
   return `<svg viewBox="0 0 ${W} ${H+12}" style="width:100%;margin-top:6px"><rect x="0" y="${y(15)}" width="${W}" height="${H-y(15)}" fill="#25d925" opacity=".12"/><rect x="0" y="${y(25)}" width="${W}" height="${y(15)-y(25)}" fill="#ffb020" opacity=".1"/><path d="${a.map((p,i)=>(i?"L":"M")+x(i).toFixed(1)+","+y(p[1]).toFixed(1)).join("")}" fill="none" stroke="#9fd2ff" stroke-width="1.5"/><circle cx="${W-2}" cy="${y(a[a.length-1][1])}" r="3" fill="#fff"/><text x="0" y="${H+11}" fill="#777" font-size="9">${kd(a[0][0]).slice(5)}</text><text x="${W}" y="${H+11}" fill="#777" font-size="9" text-anchor="end">${kd(a[a.length-1][0]).slice(5)}・近 120 日大盤站上季線比例（綠區＝綠燈）</text></svg>`}
@@ -656,22 +657,29 @@ function renderSuggest(){
   let h=`<div class="seg">${[["s","強烈建議"],["b","建議買進"],["w","觀察名單"]].map(([k,t])=>`<button data-sgv="${k}" class="${SGV===k?"on":""}">${t}<small>${aiD?L[k].length:""}</small></button>`).join("")}</div>`;
   h+=chips("sgc",SGC);
   if(!aiD){$("main").innerHTML=h+`<div class="empty">資料讀取中…<br><br><small>（雲端每天收盤後計算）</small></div>`;return}
-  const P=aiD.plan||{},tk=aiD.track||{},ts=tk.sum||{},stn=aiD.state||"black",SI=LIGHT[stn],go=stn==="green"||stn==="yellow";
+  const P=aiD.plan||{},tk=aiD.track||{},ts=tk.sum||{},stn=aiD.state||"black",SI=LIGHT[stn]||LIGHT.black,go=LGO.includes(stn),VD=P.valid||{};
   const T=((P.states||[]).find(x=>x[0]===stn)||[])[3]||{};
   // 大盤燈號：決定今天該不該進場
   h+=`<div class="light" style="border-color:${SI[1]}"><div class="lt"><i style="background:${SI[1]}"></i><b style="color:${SI[1]}">${SI[0]}</b><span>大盤站上季線 ${F(aiD.breadth,0)}%</span></div>
    <div class="ld">${SI[2]}${T.n?`<br>歷史上這種燈號進場（${T.ndays} 個交易日、${T.nepi} 個波段）：<b>勝率 ${F(T.win,0)}%、平均每筆 ${pct(T.avg,1)}</b>`:""}</div>${bhSpark()}</div>`;
   if(P.states){
-    h+=`<div class="pstat"><div><span>歷史勝率</span><b>${F(T.win,0)}%</b></div><div><span>平均每筆</span><b class="${cls(T.avg)}">${pct(T.avg,1)}</b></div><div><span>賺時平均</span><b class="up">${pct(T.aw,1)}</b></div><div><span>賠時平均</span><b class="down">${pct(T.al,1)}</b></div></div>`;
+    h+=`<div class="pstat"><div><span>歷史勝率</span><b>${F(T.win,0)}%</b></div><div><span>平均每筆</span><b class="${cls(T.avg)}">${pct(T.avg,1)}</b></div><div><span>最多套牢</span><b class="down">${pct(T.mae,1)}</b></div><div><span>賠時平均</span><b class="down">${pct(T.al,1)}</b></div></div>`;
     h+=`<details class="btbox"><summary>📊 燈號和計畫怎麼來的？準不準？</summary><div style="padding-top:6px;line-height:1.7">
      <b>燈號</b>：全市場有幾成股票站在季線（60 日均線）之上。10 年資料顯示，<b>低檔股能不能賺，主要看進場時大盤是不是超跌</b>，比選哪一檔更重要：</div>
-     <table><tr><th>燈號</th><th>大盤</th><th>交易日</th><th>勝率</th><th>平均每筆</th></tr>${P.states.map(x=>`<tr><td style="color:${LIGHT[x[0]][1]}">${LIGHT[x[0]][0]}</td><td>${x[1]}～${Math.min(x[2],100)}%</td><td>${x[3].ndays||0} 天</td><td>${F(x[3].win,0)}%</td><td class="${cls(x[3].avg)}">${pct(x[3].avg,1)}</td></tr>`).join("")}</table>
+     <table><tr><th>燈號</th><th>天數</th><th>勝率</th><th>平均每筆</th><th>最多套牢</th></tr>${P.states.filter(x=>LIGHT[x[0]]).map(x=>`<tr><td style="color:${LIGHT[x[0]][1]}">${LIGHT[x[0]][0].replace(/・.*/,"")}${x[0]==="green2"?"・回升":x[0]==="green"?"・探底":""}</td><td>${x[3].ndays||0}</td><td>${F(x[3].win,0)}%</td><td class="${cls(x[3].avg)}">${pct(x[3].avg,1)}</td><td>${pct(x[3].mae,1)}</td></tr>`).join("")}</table>
+     <div class="foot" style="padding:4px 0 0">綠燈＝大盤站上季線 15% 以下；「回升」＝已比近 10 日低點高 2 個百分點以上。反彈初期＝近 10 日曾低於 15%、已回升 3 點以上、仍在 30% 以下。黃燈＝15～25%。「最多套牢」是買進後持有期間平均最深跌到多少。</div>
      <div style="padding-top:6px;line-height:1.7"><b>選股</b>：用 10 年還原股價、營收、大盤多空訓練的模型，每天收盤後在日均成交 ${F(P.liq*10000,0)} 萬以上的低檔股中排名，${SGV==="s"?"前 3%":SGV==="b"?"3～6%":"6～12%"}列在這一級；處置股、跌停股、極端崩跌股不列入。<br>
      <b>操作</b>：隔天開盤買進（開盤高於「不追價」就放棄）→ 跌破停損價賣出 → 碰到目標價賣出 → 都沒碰到，第 ${P.hold} 天收盤賣出。<br>
      <b>停損</b>＝參考價 − ${P.ks} 倍 ATR；<b>目標</b>＝${P.kt?"參考價 ＋ "+P.kt+" 倍 ATR":"不設，抱滿 "+P.hold+" 天"}（ATR 是這檔股票平均每天的波動幅度）。這組數字是從 20 種停損／目標組合中，用歷史資料挑出來的。<br>
      <b>實測</b>：把這套做法套回過去每一天（每年只用之前的資料選股），已扣手續費和證交稅 ${F(P.cost,2)}%。</div>
      ${P.years?`<table><tr><th>年份（綠＋黃燈）</th><th>交易日</th><th>勝率</th><th>平均每筆</th></tr>${P.years.map(y=>`<tr><td>${y[0]}</td><td>${y[1].ndays} 天</td><td>${F(y[1].win,1)}%</td><td class="${cls(y[1].avg)}">${pct(y[1].avg,1)}</td></tr>`).join("")}</table>`:""}
-     <div class="foot" style="padding:6px 0 0"><b>要注意</b>：綠燈 10 年只出現過 ${((P.states.find(x=>x[0]==="green")||[])[3]||{}).nepi||"幾"} 個波段（例如 2020 年 3 月、2022 年、2025 年 4 月的大跌），樣本不多；同一波裡的股票是一起漲跌的。綠燈時通常是市場最恐慌的時候，買進後可能還會再跌一段，<b>一定要分批、照停損執行</b>。有些年完全沒有燈號（例如 2023 年），這時就是不買。過去表現不代表未來。</div></details>`;
+     ${VD.port&&VD.port["rec/10"]?(()=>{const row=(k,n)=>{const r=VD.port[k];return r&&r.n?`<tr><td>${n}</td><td class="${r.final>=1?"up":"down"}">${F(r.final,2)} 倍</td><td class="${cls(r.cagr)}">${pct(r.cagr,1)}</td><td class="down">${F(r.mdd,0)}%</td><td>${r.years.filter(y=>y[1]<0).length} 年</td></tr>`:""};const R=VD.port["rec/10"];
+       return `<div style="padding-top:8px"><b>資金模擬</b>（${esc(R.from.slice(0,4))} 年起，一筆資金照計畫操作，最多同時 10 檔、每檔投入 1/10）：</div>
+       <table><tr><th>做法</th><th>資金變成</th><th>年化</th><th>最大回檔</th><th>賠錢年</th></tr>${row("rec/10","綠燈＋反彈初期（建議）")+row("best/10","只做回升")+row("agg/10","再加黃燈")+row("all/10","不看燈號每天買")}</table>
+       <div class="foot" style="padding:4px 0 0">建議做法各年：${R.years.map(y=>y[0]+" "+(y[1]>0?"+":"")+y[1]+"%").join("、")}。只有 ${F(R.expo,0)}% 的日子手上有股票，其餘時間是空手等待。「最大回檔」是資金從高點最多跌掉多少。</div>`})():""}
+     ${VD.bench?`<div style="padding-top:8px"><b>選股有沒有用？</b>${VD.bench.map(x=>x[1].n&&x[2].n?` ${x[0]}的日子：全部低檔股平均 ${pct(x[1].avg,1)}，名單內 ${pct(x[2].avg,1)}（多 ${pct(x[2].avg-x[1].avg,1)}）。`:"").join("")}主要的差別來自進場時機，選股是加分。三個分級（前 3%／6%／12%）的歷史成績差不多。</div>`:""}
+     ${VD.episodes?`<div style="padding-top:8px"><b>每一波的成績</b>（${VD.epi_win[1]} 波中 ${VD.epi_win[0]} 波賺錢）：</div><table><tr><th>期間</th><th>天</th><th>勝率</th><th>平均</th><th>套牢</th></tr>${VD.episodes.map(e=>`<tr><td>${e.from.slice(2,7)}${e.days>1?"～"+e.to.slice(5,7):""}</td><td>${e.days}</td><td>${F(e.win,0)}%</td><td class="${cls(e.avg)}">${pct(e.avg,1)}</td><td>${pct(e.mae,1)}</td></tr>`).join("")}</table>`:""}
+     <div class="foot" style="padding:6px 0 0"><b>要注意</b>：可以進場的波段 10 年只有十幾次，樣本不多；同一波裡的股票是一起漲跌的。像 2020 年 3 月那一波，進場後平均先套牢 12% 才反彈，<b>一定要分批、照停損執行、每檔金額照 App 算的買</b>。有些年完全沒有燈號（例如 2023 年），這時就是不買。資金模擬沒有算進滑價和買不到的情況，實際會差一些。過去表現不代表未來。</div></details>`;
   }
   h+=`<details class="btbox"><summary>📋 推薦追蹤：${ts.n?`已結束 ${ts.n} 筆，勝率 ${F(ts.win,0)}%，平均 ${pct(ts.avg,1)}`:"開始記錄中"}${ts.open?`・持有中 ${ts.open} 筆`:""}</summary>
    <div class="foot" style="padding:6px 0">從 ${esc(ts.since||aiD.date)} 起，每天的「強烈建議」和「建議買進」都會記下來，之後用實際走勢對答案（照同一套計畫，已扣成本）。</div>
@@ -1026,7 +1034,7 @@ function renderHome(){
   const sigN=lowbase?lbView().sig.length:0;
   let h=`<div class="mstrip">${box("加權指",t,2)+box("櫃買指",o,2)+box("台指近",dn,0)}</div>`+(rtInfo?`<div class="rtline">${isTrading()?"●":"○"} ${rtTag()}${isTrading()?"・每 "+S.int+" 秒更新":"・非交易時間"}</div>`:"");
   h+=errLine();
-  h+=`<div class="grid">${TILES.map(([k,n])=>`<button data-tile="${k}"><svg viewBox="0 0 64 64">${GI[k]}</svg><span>${n}</span>${k==="suggest"&&aiD&&(aiD.state==="green"||aiD.state==="yellow")?`<em>${aiD.state==="green"?"綠":"黃"}</em>`:k==="alerts"&&alerts.some(a=>a.on)?`<em>${alerts.filter(a=>a.on).length}</em>`:""}</button>`).join("")}</div>`;
+  h+=`<div class="grid">${TILES.map(([k,n])=>`<button data-tile="${k}"><svg viewBox="0 0 64 64">${GI[k]}</svg><span>${n}</span>${k==="suggest"&&aiD&&LGO.includes(aiD.state)?`<em style="background:${aiD.state==="yellow"?"#c98a00":"#1c9c1c"}">${aiD.state==="yellow"?"黃":"綠"}</em>`:k==="alerts"&&alerts.some(a=>a.on)?`<em>${alerts.filter(a=>a.on).length}</em>`:""}</button>`).join("")}</div>`;
   h+=`<div class="foot" style="text-align:center">版本 ${esc(myVer.name)}・介面 ${window.__OTA_V||UI_V}・資料僅供參考，不構成投資建議</div>`;
   $("main").innerHTML=`<svg width="0" height="0" style="position:absolute">${GDEF}</svg>`+h;
 }
