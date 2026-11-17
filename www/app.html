@@ -227,8 +227,8 @@ body.swap .qr>div.lu{background:#0f7a0f}body.swap .qr>div.ld{background:#b30d0d}
     <button data-t="home"><svg viewBox="0 0 32 32"><path d="M5 15L16 5l11 10"/><path d="M8 13v13h6v-7h4v7h6V13"/></svg>首頁</button>
     <button data-t="rise" class="pk"><svg viewBox="0 0 32 32"><path d="M4 25h24"/><path d="M6 21l6-5 5 3 9-10"/><path d="M20 9h6v6"/></svg>即將突破</button>
     <button data-t="suggest"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="11"/><circle cx="16" cy="16" r="6"/><circle cx="16" cy="16" r="1.5"/><path d="M24 8l-6 6"/></svg>建議買進</button>
-    <button data-t="pick"><svg viewBox="0 0 32 32"><path d="M4 24h6l3-3h6l3 3h6"/><path d="M22 19l4-10M22 9h4v4"/></svg>低檔選股</button>
     <button data-t="ai"><svg viewBox="0 0 32 32"><rect x="6" y="18" width="4" height="8"/><rect x="14" y="12" width="4" height="14"/><rect x="22" y="6" width="4" height="20"/><path d="M5 9l6-3 6 4 9-6"/></svg>數據精選</button>
+    <button data-t="watch"><svg viewBox="0 0 32 32"><path d="M12 9h15M12 16h15M12 23h15"/><circle cx="6.5" cy="9" r="1.3"/><circle cx="6.5" cy="16" r="1.3"/><circle cx="6.5" cy="23" r="1.3"/></svg>自選報價</button>
   </nav>
 </div>
 
@@ -288,7 +288,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=41; // 介面版本，要和 ota.json 一致
+const UI_V=42; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:10,fs:"m"},store.get("settings",{}));
 if(S.int===20&&!S.intSet)S.int=10; // 舊預設 20 秒改成 10 秒（使用者自己選過的不動）
@@ -297,7 +297,7 @@ let groups=store.get("groups",null);
 if(Array.isArray(groups))groups=groups.filter(g=>g&&typeof g==="object").map(g=>({name:String(g.name||"自選股"),codes:(Array.isArray(g.codes)?g.codes:Array.isArray(g.list)?g.list:[]).map(String).filter(c=>/^\w{4,6}$/.test(c))}));
 if(!Array.isArray(groups)||!groups.length){const w=store.get("watch",null);groups=[{name:"自選股",codes:Array.isArray(w)&&w.length?w.map(String):["2330","2317","2454","3008"]}]}
 store.set("groups",groups);
-let gSel=store.get("gSel","g:0"),iSel=store.get("iSel","us"),sortSt={k:"",d:0};
+let gSel=(v=>v==="p:low"?"g:0":v)(store.get("gSel","g:0")),iSel=store.get("iSel","us"),sortSt={k:"",d:0};
 let daily={},info={},rt={},news=[],mops=[],idx={tse:null,otc:null},fut={day:[],night:[]},us=[],status=store.get("status",{});
 // 打開 App 先顯示上次的報價（標示為非即時），連上後馬上換成即時
 (()=>{const sn=store.get("rtSnap",null);if(sn&&Date.now()-sn.at<20*3600e3){for(const c in sn.rt)rt[c]=Object.assign(sn.rt[c],{stale:true});idx=sn.idx||idx}
@@ -892,7 +892,8 @@ async function ensureHist(c){
   const h=await loadHist(c,need,part=>{histMem[c]=part;if(ovKind==="stock"&&ovArg===c)drawK()});
   histMem[c]=h;if(ovKind==="stock"&&ovArg===c)drawK();
 }
-function kBand(c){const x=lbItem(c);if(!x||!x.bhi)return null;const L=x.len["20"]||0;return {hi:x.bhi,lo:x.blo,n:kMode==="d"?L:kMode==="w"?Math.ceil(L/5):Math.ceil(L/21)}}
+function kBand(c){return null} // 低檔盤整區間不再顯示
+function kBand_old(c){const x=lbItem(c);if(!x||!x.bhi)return null;const L=x.len["20"]||0;return {hi:x.bhi,lo:x.blo,n:kMode==="d"?L:kMode==="w"?Math.ceil(L/5):Math.ceil(L/21)}}
 // 日 K 往前拉到最早一天時，下載更早一年的日 K（最多到 10 年前）
 async function loadOlder(c){
   const f=kfMem[c];if(!f||f._busy||!f.d.length)return;if(f._next===undefined)f._next=+f.d[0][0].slice(0,4);const target=f._next;
@@ -983,7 +984,6 @@ function openSheet(kind){
   if(kind==="watch"){
     h+=`<div class="grp">我的自選群組</div>`+groups.map((g,i)=>`<button data-sel="g:${i}" class="${gSel==="g:"+i?"on":""}">${esc(g.name)}<span class="mute">${g.codes.length} 檔</span></button>`).join("");
     h+=`<div class="grp">我的庫存</div><button data-sel="h:" class="${gSel==="h:"?"on":""}">庫存損益<span class="mute">${Object.keys(holds).length} 檔</span></button>`;
-    h+=`<div class="grp">選股</div><button data-sel="p:low" class="${gSel==="p:low"?"on":""}">低檔盤整<span class="mute">${mon(LBF.per)}以上・振幅 ${LBF.amp}%</span></button>`;
     h+=`<div class="grp">市場排行（前一交易日收盤）</div>`+PRESET.map(p=>`<button data-sel="${p[0]}" class="${gSel===p[0]?"on":""}">${p[1]}</button>`).join("");
   }else if(kind.startsWith("lb:")){
     const m=LBM.find(x=>x[0]===kind.slice(3));
@@ -1014,8 +1014,9 @@ const GI={
  status:`<circle cx="32" cy="32" r="22" fill="#1f5fc7"/><circle cx="32" cy="32" r="18" fill="#f8f3e3"/><path d="M32 18v14h10" fill="none" stroke="#e8322a" stroke-width="3.5" stroke-linecap="round"/><circle cx="32" cy="32" r="2.5" fill="#333"/>`,
  upd:`<path d="M26 8h12v20h9L32 44 17 28h9z" fill="url(#gB)"/><path d="M10 44l22 12 22-12-8-4-14 8-14-8z" fill="url(#gG)" stroke="#9a6b00" stroke-width="1.2"/>`
 };
+GI.rise=GI.pick;GI.suggest=`<circle cx="32" cy="32" r="22" fill="#1d2a3a"/><circle cx="32" cy="32" r="15" fill="none" stroke="#ffb020" stroke-width="4"/><circle cx="32" cy="32" r="7" fill="#e8322a"/><path d="M46 18L34 30" stroke="#fff" stroke-width="3" stroke-linecap="round"/>`;
 const GDEF=`<defs><linearGradient id="gP" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fffaf0"/><stop offset="1" stop-color="#e7dcc0"/></linearGradient><linearGradient id="gG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe07a"/><stop offset="1" stop-color="#d49a12"/></linearGradient><linearGradient id="gB" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5aa8ff"/><stop offset="1" stop-color="#1546a8"/></linearGradient></defs>`;
-const TILES=[["watch","自選報價"],["pick","低檔選股"],["index","指數行情"],["ind","類股報價"],["fut","台指期貨"],["intl","國際金融"],["holds","庫存損益"],["alerts","價格提醒"],["news","財經新聞"],["mops","重大訊息"],["newlist","新上市櫃"],["otchist","上櫃家數"],["settings","設定"],["status","資料狀態"],["upd","檢查更新"]];
+const TILES=[["watch","自選報價"],["rise","即將突破"],["suggest","建議買進"],["index","指數行情"],["ind","類股報價"],["fut","台指期貨"],["intl","國際金融"],["holds","庫存損益"],["alerts","價格提醒"],["news","財經新聞"],["mops","重大訊息"],["newlist","新上市櫃"],["otchist","上櫃家數"],["settings","設定"],["status","資料狀態"],["upd","檢查更新"]];
 function renderHome(){
   setTB("股市智多星",{right:icBtn("tbSearch","search")+icBtn("tbRef","ref")});
   const t=tseIdx(),o=idx.otc,dn=fut.day.find(x=>!x.spot&&/^TXF/.test(x.id));
@@ -1023,7 +1024,7 @@ function renderHome(){
   const sigN=lowbase?lbView().sig.length:0;
   let h=`<div class="mstrip">${box("加權指",t,2)+box("櫃買指",o,2)+box("台指近",dn,0)}</div>`+(rtInfo?`<div class="rtline">${isTrading()?"●":"○"} ${rtTag()}${isTrading()?"・每 "+S.int+" 秒更新":"・非交易時間"}</div>`:"");
   h+=errLine();
-  h+=`<div class="grid">${TILES.map(([k,n])=>`<button data-tile="${k}"><svg viewBox="0 0 64 64">${GI[k]}</svg><span>${n}</span>${k==="pick"&&sigN?`<em>${sigN}</em>`:k==="alerts"&&alerts.some(a=>a.on)?`<em>${alerts.filter(a=>a.on).length}</em>`:""}</button>`).join("")}</div>`;
+  h+=`<div class="grid">${TILES.map(([k,n])=>`<button data-tile="${k}"><svg viewBox="0 0 64 64">${GI[k]}</svg><span>${n}</span>${k==="suggest"&&aiD&&(aiD.state==="green"||aiD.state==="yellow")?`<em>${aiD.state==="green"?"綠":"黃"}</em>`:k==="alerts"&&alerts.some(a=>a.on)?`<em>${alerts.filter(a=>a.on).length}</em>`:""}</button>`).join("")}</div>`;
   h+=`<div class="foot" style="text-align:center">版本 ${esc(myVer.name)}・介面 ${window.__OTA_V||UI_V}・資料僅供參考，不構成投資建議</div>`;
   $("main").innerHTML=`<svg width="0" height="0" style="position:absolute">${GDEF}</svg>`+h;
 }
@@ -1136,7 +1137,7 @@ function renderMore(){
   const it=(k,t,s)=>`<div class="li" data-sub="${k}"><div class="l">${t}<small>${s}</small></div><div class="r">›</div></div>`;
   $("main").innerHTML=`<div class="sec"><span>資訊</span></div>`+it("news","財經新聞","鉅亨網台股新聞")+it("mops","重大訊息","上市櫃公司公告，可只看自選股")+
    `<div class="sec"><span>我的</span></div>`+it("holds","庫存損益","持股市值、未實現損益、報酬率")+it("alerts","價格提醒",alerts.filter(a=>a.on).length+" 則啟用中")+
-   `<div class="sec"><span>選股工具</span></div>`+`<div class="li" data-tab="pick"><div class="l">低檔選股<small>低檔橫盤＋起漲訊號（也可從下方「低檔選股」進入）</small></div><div class="r">›</div></div>`+it("ind","產業分布","各產業上市櫃家數，點進去看報價")+it("newlist","新上市櫃","最近掛牌的公司")+it("otchist","上櫃家數紀錄","每天自動記錄的上櫃公司家數")+
+   `<div class="sec"><span>選股工具</span></div>`+it("ind","產業分布","各產業上市櫃家數，點進去看報價")+it("newlist","新上市櫃","最近掛牌的公司")+it("otchist","上櫃家數紀錄","每天自動記錄的上櫃公司家數")+
    `<div class="sec"><span>設定</span></div>`+it("settings","設定","字體大小、漲跌顏色、自動更新")+it("status","資料狀態","各資料來源最後更新時間")+
    `<div class="li" id="checkUpd"><div class="l">檢查更新<small id="verDesc">目前版本 ${esc(myVer.name)}</small><small>介面版本 ${window.__OTA_V||UI_V}（打開 App 時自動更新）</small></div><div class="r" id="verR">›</div></div>`+
    `<div class="foot">資料來源：臺灣證券交易所、證券櫃檯買賣中心、臺灣期貨交易所、公開資訊觀測站、鉅亨網、CNBC。資料僅供參考，不構成投資建議。</div>`;
@@ -1144,7 +1145,7 @@ function renderMore(){
 
 /* ===== 子頁（彈出） ===== */
 let ovKind=null,ovArg=null;
-function openOv(kind,arg){if(kind==="lowbase"){go("pick");return}ovKind=kind;ovArg=arg;$("ovBody").innerHTML="";$("ovBody").onclick=null;$("ov").classList.add("on");renderOv()}
+function openOv(kind,arg){if(kind==="lowbase"){go("suggest");return}ovKind=kind;ovArg=arg;$("ovBody").innerHTML="";$("ovBody").onclick=null;$("ov").classList.add("on");renderOv()}
 function closeOv(){$("ov").classList.remove("on");ovKind=null;render()}
 $("ovBack").onclick=closeOv;
 function ago(ms){const m=Math.round((Date.now()-ms)/60000);if(m<60)return m+" 分鐘前";if(m<1440)return Math.round(m/60)+" 小時前";return new Date(ms+8*3600e3).toISOString().slice(5,10)}
@@ -1251,7 +1252,7 @@ function renderStock0(){
   }
   const m=mops.filter(x=>x.c===c).slice(0,10),nn=news.filter(n=>(n.st||[]).includes(c)||n.t.includes(q.n)).slice(0,10);
   $("ovBody").innerHTML=`<div class="big"><div class="mute" style="font-size:.85rem">${inf?esc(inf[0])+"・"+esc(inf[1]):""}${q.live?"・即時 "+esc(q.t||""):"・收盤 "+(daily.date||"")}</div><div style="display:flex;align-items:flex-end;gap:14px"><div class="px ${k}">${F(q.px,pxD(q.px))}</div><div class="ch ${k}" style="padding-bottom:6px">${isFinite(q.ch)?(q.ch>0?"▲":q.ch<0?"▼":"")+F(Math.abs(q.ch),2):""}　${isFinite(q.pct)?F(Math.abs(q.pct),2)+"%":""}</div></div></div>
-   <div class="jump">${[["K線","@ktab"],["低檔","低檔分析"],["基本面","基本面"],["法人","法人動向"],["籌碼","三大法人"],["行情","今日行情"],["新聞","重大訊息"]].map(([t,k])=>`<button data-jump="${k}">${t}</button>`).join("")}</div>
+   <div class="jump">${[["K線","@ktab"],["基本面","基本面"],["法人","法人動向"],["籌碼","三大法人"],["行情","今日行情"],["新聞","重大訊息"]].map(([t,k])=>`<button data-jump="${k}">${t}</button>`).join("")}</div>
    <div class="ktab" id="ktab">${[["d","日K"],["w","週K"],["m","月K"]].map(([k,t])=>`<button data-k="${k}" class="${kMode===k?"on":""}">${t}</button>`).join("")}</div>
    <div id="kwrap"><div class="kfbar"><b>${esc(q.n)} ${c}</b><button data-kf="0">✕ 關閉全螢幕</button></div><div class="kma" id="kma">${maBtns()}</div><div class="kleg" id="kleg"></div><div id="kbox"></div><div class="kzoom" id="kzoom"><button data-kz="1.5">－ 縮小</button><button data-kz="0.67">＋ 放大</button><button data-kp="0.5">◀</button><span></span><button data-kp="-0.5">▶</button><button data-kf="1">⛶ 全螢幕</button></div></div>
    ${lbStockHTML(c)}
@@ -1286,7 +1287,8 @@ function fundHTML(c){
     h+=bars(1,"外資")+bars(2,"投信")+`<div class="foot" style="padding-top:0">近 ${rs.length} 個交易日每日買賣超：紅＝買超、綠＝賣超（${kd(rs[0][0]).slice(5)}～${kd(rs[rs.length-1][0]).slice(5)}）</div>`}
   return h;
 }
-function lbStockHTML(c){
+function lbStockHTML(c){return "";} // 低檔選股功能已移除
+function lbStockHTML_old(c){
   const x=lbItem(c);if(!x)return lowbase?`<div class="sec"><span>低檔分析</span></div><div class="lbx mute">這檔目前沒有在低檔橫盤 3 個月以上（或成交量太少），不在選股名單中。</div>`:"";
   const sg=lbSig(x),p=x.bhi>x.blo?Math.max(0,Math.min(100,(x.px-x.blo)/(x.bhi-x.blo)*100)):50,d=v=>F(v,v>=1000?0:2),inList=lbList().some(y=>y.c===c);
   return `<div class="sec"><span>低檔分析 ${stars(sg.s)}</span><span>${inList?"符合目前選股條件":"不符合目前選股條件"}・${esc(lowbase.date)}</span></div><div class="lbx">
@@ -1334,7 +1336,7 @@ function render(){
 }
 function go(t){
   if(t==="add"){searchQ="";openOv("search");setTimeout(()=>$("sq")&&$("sq").focus(),80);return}
-  if(t==="lowbase")t="pick";
+  if(t==="lowbase"||t==="pick")t="suggest";
   tab=t;$("main").scrollTop=0;render();
   if(t==="watch"||t==="home"||t==="pick"||t==="suggest"||t==="rise"||t==="ai"||t==="market")refreshRT();if(t==="home"||t==="market")refreshIntl();if(t==="intl")refreshIntl();
 }
