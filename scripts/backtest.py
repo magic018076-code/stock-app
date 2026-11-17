@@ -10,7 +10,7 @@ import json, os, time, datetime as dt
 
 TW = dt.timezone(dt.timedelta(hours=8))
 H = 20  # 看之後幾個交易日
-VER = 15  # 回測程式版本；改版時自動重跑
+VER = 16  # 回測程式版本；改版時自動重跑
 
 
 def frames(series, dates):
@@ -55,6 +55,48 @@ def rev_frame(C):
             if j is not None and v[2] is not None:
                 out[idx, j] = max(-100.0, min(300.0, v[2]))
     return pd.DataFrame(out, index=C.index, columns=C.columns)
+
+
+def insti_frames(C, V):
+    """外資、投信每日買賣超（張）對齊成和股價一樣的表；沒有資料的日子是空值。
+    早期只有上市有資料，那些日子只把上市股票沒出現的當成 0。"""
+    import gzip, numpy as np, pandas as pd
+    F = np.full(C.shape, np.nan)
+    T = np.full(C.shape, np.nan)
+    try:
+        with gzip.open("cache/insti.json.gz", "rt", encoding="utf-8") as f:
+            ins = json.load(f)
+    except Exception:
+        ins = {}
+    cols = {c: j for j, c in enumerate(C.columns)}
+    idx = {d: i for i, d in enumerate(C.index)}
+    tw_only = [d for d, v in ins.items() if v and len(v) < 1100]
+    tw_codes = set()
+    for d in tw_only:
+        tw_codes.update(ins[d])
+    tw_cols = np.array(sorted(cols[c] for c in tw_codes if c in cols), dtype=int)
+    for d, v in ins.items():
+        i = idx.get(d)
+        if i is None or not v:
+            continue
+        if len(v) < 1100:
+            if len(tw_cols):
+                F[i, tw_cols] = 0; T[i, tw_cols] = 0
+        else:
+            F[i, :] = 0; T[i, :] = 0
+        for c, x in v.items():
+            j = cols.get(c)
+            if j is not None:
+                F[i, j], T[i, j] = x[0], x[1]
+    mk = lambda a: pd.DataFrame(a, index=C.index, columns=C.columns)
+    F, T = mk(F), mk(T)
+    out = {}
+    for k, n_ in (("5", 5), ("20", 20)):
+        vol = V.rolling(n_, min_periods=n_).sum()
+        out["f" + k + "p"] = F.rolling(n_, min_periods=n_).sum() / vol * 100     # 外資近 n 日買賣超佔成交量 %
+        out["t" + k + "p"] = T.rolling(n_, min_periods=n_).sum() / vol * 100     # 投信
+    print(f"法人資料：{len([d for d, v in ins.items() if v])} 天（只有上市的 {len(tw_only)} 天）", flush=True)
+    return out
 
 
 def stats(ret, mx):
@@ -197,6 +239,7 @@ def run(series, dates):
              "r60": (C / C.shift(60) - 1) * 100, "dd": (C / hi250 - 1) * 100, "rng42": rng42 * 100, "bo": bo.astype(float),
              "gap": gap, "vol20": C.pct_change().rolling(20).std() * 100, "amt": (C * V.rolling(20).mean() / 1e5),
              "rvy": rvy, "mkt": mkt, "vq": V.rolling(20).mean() / v120}
+        F.update(insti_frames(C, V))
         jump = C.pct_change().abs().rolling(60, min_periods=1).max() > 0.11   # 單日漲跌超過 11%＝資料斷層（未還原的減資等），排除
         extreme = ((C / hi250 - 1) * 100 < -75) | (rng42 * 100 > 150)   # 極端崩跌股（可能有重大問題），排除
         U = (pos <= 60) & (v20 >= 100) & valid & ~jump & ~extreme
@@ -241,7 +284,7 @@ def run(series, dates):
     return out
 
 
-FEAT_NAME = {"vq": "近月量／半年量", "r5": "近5日漲跌", "vol20": "波動度", "amt": "成交金額(億)", "rvy": "營收年增", "mkt": "大盤站上季線比例", "d60": "離季線", "slope": "季線方向", "m20": "站上月線", "ch": "今日漲跌", "vr": "今日量／20日均量", "u60": "季線下天數",
+FEAT_NAME = {"f20p": "外資20日買賣超佔量", "f5p": "外資5日買賣超佔量", "t20p": "投信20日買賣超佔量", "t5p": "投信5日買賣超佔量", "vq": "近月量／半年量", "r5": "近5日漲跌", "vol20": "波動度", "amt": "成交金額(億)", "rvy": "營收年增", "mkt": "大盤站上季線比例", "d60": "離季線", "slope": "季線方向", "m20": "站上月線", "ch": "今日漲跌", "vr": "今日量／20日均量", "u60": "季線下天數",
              "pos": "一年位置", "r10": "近10日漲跌", "r60": "近60日漲跌", "dd": "距一年高點", "rng42": "近2月振幅", "bo": "創60日新高", "gap": "月季線差距"}
 
 
@@ -274,6 +317,8 @@ def fit_model(F, fwd, fmx, U, dates, split="2023-01-01", end=None, quiet=False):
     for k, x in X.items():
         good = ~np.isnan(x)
         xt = x[tr & ok & good]
+        if len(xt) < 20000:
+            continue                     # 這個條件在學習期間資料太少（例如法人資料還沒補到），先不用
         uniq = np.unique(xt)
         edges = [0.5] if len(uniq) <= 2 else sorted(set(np.round(np.quantile(xt, [0.2, 0.4, 0.6, 0.8]), 4).tolist()))
         b = np.searchsorted(edges, x, side="right")
@@ -1067,7 +1112,15 @@ def score_today(series, dates, fund=None, ind=None, top=150, warn=None):
              "gap": abs(m20 - m60) / m60 * 100,
              "r5": (px / C[-6] - 1) * 100, "amt": px * sum(V[-20:]) / 20 / 1e5, "mkt": breadth,
              "vol20": (lambda rr: (sum((x - sum(rr) / len(rr)) ** 2 for x in rr) / (len(rr) - 1)) ** 0.5 * 100)([C[i] / C[i - 1] - 1 for i in range(len(C) - 20, len(C))])}
-        rv = ((fund or {}).get("s", {}).get(c, {}) or {}).get("rvy")
+        fz = (fund or {}).get("s", {}).get(c, {}) or {}
+        for k_, n_ in (("5", 5), ("20", 20)):
+            vol = sum(V[-n_:])
+            if vol > 0:
+                if isinstance(fz.get("f" + k_), (int, float)):
+                    x["f" + k_ + "p"] = fz["f" + k_] / vol * 100
+                if isinstance(fz.get("t" + k_), (int, float)):
+                    x["t" + k_ + "p"] = fz["t" + k_] / vol * 100
+        rv = fz.get("rvy")
         if isinstance(rv, (int, float)):
             x["rvy"] = max(-100.0, min(300.0, rv))
         # ATR（14 日平均真實波幅）：給停損、目標價用

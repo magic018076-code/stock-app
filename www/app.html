@@ -288,7 +288,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=44; // 介面版本，要和 ota.json 一致
+const UI_V=45; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:10,fs:"m"},store.get("settings",{}));
 if(S.int===20&&!S.intSet)S.int=10; // 舊預設 20 秒改成 10 秒（使用者自己選過的不動）
@@ -763,7 +763,7 @@ async function loadAI(force){aiD=await cached("ai",4,async()=>{const j=await get
 const aiCol=v=>v>=90?"#e8322a":v>=70?"#ff7a1a":"#555";
 const aiBadge=v=>typeof v==="number"?`<span class="aib" style="border-color:${aiCol(v)};color:${v>=70?aiCol(v):"#999"}">數據 ${v}</span>`:"";
 function aiDec(v){const d=aiD&&aiD.dec;if(!d)return null;const r=d.find(x=>v>=x[0]&&v<x[0]+10);return r&&r[1]&&r[1].n?r[1]:null}
-const PT_FMT={"近5日漲跌":v=>"近5日 "+(v>0?"+":"")+F(v,1)+"%","波動度":v=>"日波動 "+F(v,1)+"%","成交金額(億)":v=>"日均成交 "+F(v,1)+" 億","營收年增":v=>"營收年增 "+yoyT(v),"離季線":v=>"離季線 "+(v>0?"+":"")+F(v,1)+"%","季線方向":v=>"季線"+(v>=0?"翻揚":"下彎")+" "+F(v,1)+"%","今日漲跌":v=>"今日 "+(v>0?"+":"")+F(v,1)+"%","今日量／20日均量":v=>"量 "+F(v,1)+" 倍","季線下天數":v=>"季線下 "+Math.round(v)+" 天","一年位置":v=>"一年位置 "+Math.round(v)+"%","近10日漲跌":v=>"近10日 "+(v>0?"+":"")+F(v,1)+"%","近60日漲跌":v=>"近60日 "+(v>0?"+":"")+F(v,1)+"%","距一年高點":v=>"距一年高點 "+F(v,0)+"%","近2月振幅":v=>"近2月振幅 "+F(v,0)+"%","創60日新高":v=>v?"創60日新高":"未創新高","站上月線":v=>v?"站上月線":"月線下","月季線差距":v=>"月季線差 "+F(v,1)+"%"};
+const PT_FMT={"外資20日買賣超佔量":v=>"外資20日"+(v>=0?"買超":"賣超")+" "+F(Math.abs(v),1)+"%量","外資5日買賣超佔量":v=>"外資5日"+(v>=0?"買超":"賣超")+" "+F(Math.abs(v),1)+"%量","投信20日買賣超佔量":v=>"投信20日"+(v>=0?"買超":"賣超")+" "+F(Math.abs(v),1)+"%量","投信5日買賣超佔量":v=>"投信5日"+(v>=0?"買超":"賣超")+" "+F(Math.abs(v),1)+"%量","近月量／半年量":v=>"近月量 "+F(v,1)+" 倍","近5日漲跌":v=>"近5日 "+(v>0?"+":"")+F(v,1)+"%","波動度":v=>"日波動 "+F(v,1)+"%","成交金額(億)":v=>"日均成交 "+F(v,1)+" 億","營收年增":v=>"營收年增 "+yoyT(v),"離季線":v=>"離季線 "+(v>0?"+":"")+F(v,1)+"%","季線方向":v=>"季線"+(v>=0?"翻揚":"下彎")+" "+F(v,1)+"%","今日漲跌":v=>"今日 "+(v>0?"+":"")+F(v,1)+"%","今日量／20日均量":v=>"量 "+F(v,1)+" 倍","季線下天數":v=>"季線下 "+Math.round(v)+" 天","一年位置":v=>"一年位置 "+Math.round(v)+"%","近10日漲跌":v=>"近10日 "+(v>0?"+":"")+F(v,1)+"%","近60日漲跌":v=>"近60日 "+(v>0?"+":"")+F(v,1)+"%","距一年高點":v=>"距一年高點 "+F(v,0)+"%","近2月振幅":v=>"近2月振幅 "+F(v,0)+"%","創60日新高":v=>v?"創60日新高":"未創新高","站上月線":v=>v?"站上月線":"月線下","月季線差距":v=>"月季線差 "+F(v,1)+"%"};
 function aiCard(x){
   const r=rt[x.c],lv=r&&!r.stale&&isFinite(r.z),px=lv?r.z:x.px,ch=lv&&isFinite(r.pct)?r.pct:x.ch,k=ch>0?"up":ch<0?"down":"flat",ind=(x.ic&&IND[x.ic])||"",dec=aiDec(x.ai);
   return `<div class="lc" data-code="${x.c}"><div class="r1"><span class="scb" style="background:${aiCol(x.ai)}">${x.ai}</span><b>${esc(x.n)}</b><span class="cd">${x.c}${x.m==="O"?" 櫃":""}${ind?"・"+esc(ind):""}</span>${limDown(x)?`<span class="aib" style="border-color:#25d925;color:#25d925">⚠ 今日跌停</span>`:""}<span class="px ${k}">${F(px,pxD(px))}</span><span class="pc ${k}">${ch>0?"+":""}${F(ch,2)}%</span></div>

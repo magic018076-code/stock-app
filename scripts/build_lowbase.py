@@ -226,6 +226,23 @@ def adj_series(h, ev):
             for r, f in zip(rows, fs):
                 if f != 1.0:
                     r[3], r[4], r[5], r[6] = r[3] * f, r[4] * f, r[5] * f, r[6] * f
+    # 剩下的資料斷層自動還原：台股有漲跌幅限制（10%，2015/6 前 7%），相鄰兩個交易日收盤差超過 11%
+    # 只可能是沒抓到的減資、合併換股等（例如上櫃減資）。新掛牌前 5 天沒有漲跌幅限制，不處理。
+    fixed = 0
+    for c, rows in series.items():
+        if c.startswith("00"):
+            continue
+        k = len(rows) - 1
+        while k >= 1:
+            a_, b_ = rows[k - 1][6], rows[k][6]
+            if a_ and b_ and k >= 6 and abs(b_ / a_ - 1) > 0.11:
+                ratio = b_ / a_
+                for r in rows[:k]:
+                    r[3], r[4], r[5], r[6] = r[3] * ratio, r[4] * ratio, r[5] * ratio, r[6] * ratio
+                fixed += 1
+            k -= 1
+    if fixed:
+        print(f"自動還原資料斷層：{fixed} 處", flush=True)
     return series
 
 
