@@ -1077,7 +1077,7 @@ def brk_today(series, dates, fund=None, ind=None, warn=None):
     held = [e for e in recent if e["st"] in ("持有中", "停損")]
     summ = {"n": len(held), "win": round(sum(1 for e in held if e["ret"] > 0) / len(held) * 100, 1) if held else None,
             "avg": round(sum(e["ret"] for e in held) / len(held), 2) if held else None}
-    res = {"date": last, "breadth": round(breadth, 1), "plan": {k: P.get(k) for k in ("sig", "hold", "ks", "trail", "cost", "liq", "all", "states", "years")} if P else None,
+    res = {"date": last, "breadth": round(breadth, 1), "plan": {k: P.get(k) for k in ("sig", "hold", "ks", "trail", "cost", "liq", "all", "states", "years", "valid")} if P else None,
            "today": today, "near": near[:80], "recent": recent[:120], "rsum": summ}
     os.makedirs("out", exist_ok=True)
     json.dump(res, open("out/brk.json", "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
