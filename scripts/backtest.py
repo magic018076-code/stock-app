@@ -310,6 +310,8 @@ def score_today(series, dates, fund=None, ind=None, top=150):
             continue  # 近 60 天有超過漲跌停的跳動＝資料斷層（例如未還原的減資），不評分
         if px / hi250 - 1 < -0.75 or max(C[-42:]) / min(C[-42:]) - 1 > 1.5:
             continue  # 距一年高點跌超過 75%、或 2 個月振幅超過 150%：極端崩跌股，可能有重大問題，不評分
+        if px / C[-2] - 1 <= -0.095:
+            continue  # 今天收跌停：賣壓還沒結束，不列入建議
         u60 = 0
         for k in range(len(C) - 2, len(C) - 250, -1):
             if C[k] < sum(C[k - 59:k + 1]) / 60:

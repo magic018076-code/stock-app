@@ -283,7 +283,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=38; // 介面版本，要和 ota.json 一致
+const UI_V=39; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:10,fs:"m"},store.get("settings",{}));
 if(S.int===20&&!S.intSet)S.int=10; // 舊預設 20 秒改成 10 秒（使用者自己選過的不動）
@@ -617,6 +617,8 @@ function sugOf(x){
   x._sg={at:r&&r.t,v};return v;
 }
 // 建議買進（v2）：改用數據模型分數分級；買進區間、停損、目標依每檔的 ATR（平均每日波動幅度）計算
+// 今天跌停（盤中即時跌幅 ≥9.5%，或最近收盤跌停）：賣壓未止，不建議買進
+function limDown(x){const r=rt[x.c],lv=r&&!r.stale&&isFinite(r.pct);return lv?(r.pct<=-9.5||(isFinite(r.w)&&r.w>0&&r.z<=r.w)):x.ch<=-9.5}
 function sugAI(x){
   const r=rt[x.c],lv=r&&!r.stale&&isFinite(r.z),px=lv?r.z:x.px,atr=x.atr>0?x.atr:px*0.03;
   const e1=px-0.5*atr,e2=px+0.3*atr;
@@ -628,7 +630,7 @@ function sugList(){
   if(!aiD)return {s:[],b:[],w:[]};
   // 分級依「今天」的排名（大盤超跌時大家的分數都偏高，用排名才分得出強弱）：前 3% 強烈建議、3～6% 建議買進、6～12% 觀察
   const N=aiD.n||aiD.items.length,rk={};aiD.items.slice().sort((p,q)=>q.raw-p.raw).forEach((x,i)=>rk[x.c]=i/N*100);
-  const a=aiD.items.filter(x=>!SGC||catOf(x)===SGC).map(x=>[x,sugAI(x)]).sort((p,q)=>q[0].raw-p[0].raw);
+  const a=aiD.items.filter(x=>(!SGC||catOf(x)===SGC)&&!limDown(x)).map(x=>[x,sugAI(x)]).sort((p,q)=>q[0].raw-p[0].raw);
   return {s:a.filter(z=>rk[z[0].c]<3),b:a.filter(z=>rk[z[0].c]>=3&&rk[z[0].c]<6),w:a.filter(z=>rk[z[0].c]>=6&&rk[z[0].c]<12)};
 }
 function sugCard([x,v]){
@@ -651,6 +653,8 @@ function renderSuggest(){
    <b>前 10%：上漲 ${F(t10.win,1)}%、平均 ${pct(t10.avg,1)}；前 5%：上漲 ${F(t5.win,1)}%、平均 ${pct(t5.avg,1)}</b>。</div>
    ${aiD.wf?`<table><tr><th>年份</th><th>全部上漲</th><th>前10%上漲</th><th>前10%平均</th></tr>${aiD.wf.map(w=>`<tr><td>${w[0]}</td><td>${F(w[1].win,1)}%</td><td class="${w[2].win>w[1].win?"up":""}">${F(w[2].win,1)}%</td><td>${pct(w[2].avg,1)}</td></tr>`).join("")}</table>`:""}
    <div class="foot" style="padding:6px 0 0"><b>買進區間</b>＝現價下方 0.5 個 ATR 到上方 0.3 個 ATR；<b>停損</b>＝近 10 日低點下方（介於 1.5～2.5 個 ATR）；<b>目標</b>＝現價加 3 個 ATR。ATR 是每檔股票平均每天的波動幅度。<br>模型不是每年都一樣準（例如 2023、2024 年優勢較小），請務必照停損執行。過去表現不代表未來。</div></details>`;
+  const ld=aiD.items.filter(limDown).length;
+  if(ld)h+=`<div class="foot" style="color:#9fd2ff;padding:6px 12px">已排除今天跌停的 ${ld} 檔（賣壓未止，不建議當天買進）</div>`;
   h+=`<div class="sec"><span>${SGV==="s"?"今日排名前 3%":SGV==="b"?"排名 3～6%":"排名 6～12%"}・${cur.length} 檔</span><span>大盤站上季線 ${F(aiD.breadth,0)}%・${esc(aiD.date.slice(5))}</span></div>`;
   h+=cur.slice(0,80).map(sugCard).join("")||`<div class="empty">目前沒有符合的股票<br><br>可以切換其他分級看看</div>`;
   h+=`<div class="foot"><b style="color:#ffd27a">依公開資料以統計模型計算，僅供參考，不構成投資建議；買賣請自行判斷並控制風險。</b></div>`;
@@ -663,7 +667,7 @@ let RSC=store.get("rsC",""),RSS=store.get("rsS2","ai"); // 即將起漲預設依
 function dayFrac(){const t=tp(),m=t.getUTCHours()*60+t.getUTCMinutes()-540;return isTrading()?Math.max(0.08,Math.min(1,m/270)):1}
 function riseOf(x){
   // 以季線（60 日均線）為準：只抓還在季線下、快要站上，或今天剛站上的股票
-  if(!(x.m60>0)||!(x.s59>0)||x.pos>60)return null;
+  if(!(x.m60>0)||!(x.s59>0)||x.pos>60||limDown(x))return null;
   const r=rt[x.c],live=r&&!r.stale&&isFinite(r.z),px=live?r.z:x.px,ch=live&&isFinite(r.pct)?r.pct:x.ch;
   const m60=live?(x.s59+px)/60:x.m60;          // 盤中用即時價算今天的季線
   const wasBelow=x.px<x.m60;                     // 最近一個收盤在季線下
@@ -720,7 +724,7 @@ function aiDec(v){const d=aiD&&aiD.dec;if(!d)return null;const r=d.find(x=>v>=x[
 const PT_FMT={"近5日漲跌":v=>"近5日 "+(v>0?"+":"")+F(v,1)+"%","波動度":v=>"日波動 "+F(v,1)+"%","成交金額(億)":v=>"日均成交 "+F(v,1)+" 億","營收年增":v=>"營收年增 "+yoyT(v),"離季線":v=>"離季線 "+(v>0?"+":"")+F(v,1)+"%","季線方向":v=>"季線"+(v>=0?"翻揚":"下彎")+" "+F(v,1)+"%","今日漲跌":v=>"今日 "+(v>0?"+":"")+F(v,1)+"%","今日量／20日均量":v=>"量 "+F(v,1)+" 倍","季線下天數":v=>"季線下 "+Math.round(v)+" 天","一年位置":v=>"一年位置 "+Math.round(v)+"%","近10日漲跌":v=>"近10日 "+(v>0?"+":"")+F(v,1)+"%","近60日漲跌":v=>"近60日 "+(v>0?"+":"")+F(v,1)+"%","距一年高點":v=>"距一年高點 "+F(v,0)+"%","近2月振幅":v=>"近2月振幅 "+F(v,0)+"%","創60日新高":v=>v?"創60日新高":"未創新高","站上月線":v=>v?"站上月線":"月線下","月季線差距":v=>"月季線差 "+F(v,1)+"%"};
 function aiCard(x){
   const r=rt[x.c],lv=r&&!r.stale&&isFinite(r.z),px=lv?r.z:x.px,ch=lv&&isFinite(r.pct)?r.pct:x.ch,k=ch>0?"up":ch<0?"down":"flat",ind=(x.ic&&IND[x.ic])||"",dec=aiDec(x.ai);
-  return `<div class="lc" data-code="${x.c}"><div class="r1"><span class="scb" style="background:${aiCol(x.ai)}">${x.ai}</span><b>${esc(x.n)}</b><span class="cd">${x.c}${x.m==="O"?" 櫃":""}${ind?"・"+esc(ind):""}</span><span class="px ${k}">${F(px,pxD(px))}</span><span class="pc ${k}">${ch>0?"+":""}${F(ch,2)}%</span></div>
+  return `<div class="lc" data-code="${x.c}"><div class="r1"><span class="scb" style="background:${aiCol(x.ai)}">${x.ai}</span><b>${esc(x.n)}</b><span class="cd">${x.c}${x.m==="O"?" 櫃":""}${ind?"・"+esc(ind):""}</span>${limDown(x)?`<span class="aib" style="border-color:#25d925;color:#25d925">⚠ 今日跌停</span>`:""}<span class="px ${k}">${F(px,pxD(px))}</span><span class="pc ${k}">${ch>0?"+":""}${F(ch,2)}%</span></div>
    <div class="r2"><span>近60日 <em>${x.r60>0?"+":""}${F(x.r60,1)}%</em></span><span>距一年高 <em>${F(x.dd,0)}%</em></span><span>離季線 <em>${x.d60>0?"+":""}${F(x.d60,1)}%</em></span></div>
    ${fundLine(x)}
    ${topTags((x.pts||[]).filter(p=>p[1]>0&&p[0]!=="大盤站上季線比例").map(p=>[(PT_FMT[p[0]]||(()=>p[0]))(p[2]),F(p[1],1)]))}
