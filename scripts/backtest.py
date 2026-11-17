@@ -10,7 +10,7 @@ import json, os, time, datetime as dt
 
 TW = dt.timezone(dt.timedelta(hours=8))
 H = 20  # 看之後幾個交易日
-VER = 10  # 回測程式版本；改版時自動重跑
+VER = 11  # 回測程式版本；改版時自動重跑
 
 
 def frames(series, dates):
@@ -138,6 +138,14 @@ def run(series, dates):
     for lo, hi, lab in ((0, 25, "25 分以下"), (25, 35, "25～34 分"), (35, 45, "35～44 分"), (45, 999, "45 分以上")):
         k = (SB >= lo) & (SB < hi)
         sug["buckets"].append([lab, lo, stats(RB[k], XB[k])])
+
+    # ---------- 突破研究：各種「突破」型態照實際操作賺不賺 ----------
+    try:
+        breakout_study(O, Hh, L, C, V, dates)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print("突破研究失敗", e, flush=True)
 
     # ---------- 量縮研究：量縮後會不會比較容易漲？ ----------
     vol_study = None
@@ -292,6 +300,78 @@ LIQ = 0.2        # 日均成交金額至少 0.2 億（2,000 萬）才推薦
 TIERS = (("s", 0, 3), ("b", 3, 6), ("w", 6, 12))   # 依當天排名：前 3%、3～6%、6～12%
 STATES = (("green", 0, 15), ("yellow", 15, 25), ("red", 25, 40), ("black", 40, 101))   # 大盤燈號：全市場站上季線的比例
 HOLD = 20
+
+
+def breakout_study(O, Hh, L, C, V, dates):
+    """各種突破型態：訊號當天收盤後出現 → 隔天開盤買 → 抱 20 天收盤賣，扣成本。依大盤狀態分開看。"""
+    import numpy as np, pandas as pd
+    m5, m20, m60, m120 = C.rolling(5).mean(), C.rolling(20).mean(), C.rolling(60).mean(), C.rolling(120).mean()
+    hi250, lo250 = Hh.rolling(250, min_periods=200).max(), L.rolling(250, min_periods=200).min()
+    pos = (C - lo250) / (hi250 - lo250) * 100
+    v20 = V.rolling(20).mean().shift(1)
+    vr = V / v20
+    ch = C.pct_change() * 100
+    amt = C * V.rolling(20).mean() / 1e5
+    jump = C.pct_change().abs().rolling(60, min_periods=1).max() > 0.11
+    below = (C < m60).values
+    cnt = np.zeros(below.shape)
+    for i in range(1, len(below)):
+        cnt[i] = np.where(below[i], cnt[i - 1] + 1, 0)
+    u60 = pd.DataFrame(cnt, index=C.index, columns=C.columns).shift(1).fillna(0)
+    slope = (m60 / m60.shift(5) - 1) * 100
+    cross = (C >= m60) & (C.shift(1) < m60.shift(1))
+    hh20, hh60, hh120 = C.shift(1).rolling(20).max(), C.shift(1).rolling(60).max(), C.shift(1).rolling(120).max()
+    rng42p = C.shift(1).rolling(42).max() / C.shift(1).rolling(42).min() - 1
+    rng20p = C.shift(1).rolling(20).max() / C.shift(1).rolling(20).min() - 1
+    d60 = (C / m60 - 1) * 100
+    since = cross.astype(float).rolling(10).sum().shift(1) > 0            # 過去 10 天內曾站上季線
+    base = (amt >= LIQ) & ~jump & C.notna() & (ch < 9.5)                   # 有流動性、非資料斷層、當天沒漲停（漲停隔天買不到好價）
+    entry = O.shift(-1)
+    r20 = C.shift(-HOLD) / entry - 1 - COST
+    r10 = C.shift(-10) / entry - 1 - COST
+    r5 = C.shift(-5) / entry - 1 - COST
+    breadth = ((C > m60).sum(axis=1) / C.notna().sum(axis=1) * 100).values
+    S = {
+        "全部有流動性股票（基準）": base,
+        "低檔區全部（一年位置≤60）": base & (pos <= 60),
+        "A 今天站上季線": base & cross,
+        "A1 站上季線（之前在線下≥20天）": base & cross & (u60 >= 20),
+        "A2 站上季線＋量1.5倍": base & cross & (vr >= 1.5),
+        "A3 站上季線＋季線翻揚": base & cross & (slope >= 0),
+        "A4 站上季線＋量1.5倍＋漲3%": base & cross & (vr >= 1.5) & (ch >= 3),
+        "A5 站上季線＋低檔（位置≤40）": base & cross & (pos <= 40),
+        "B 季線下0～3%（即將突破）": base & (d60 < 0) & (d60 >= -3) & (C.shift(1) < m60.shift(1)),
+        "B1 季線下0～3%＋站上月線＋季線翻揚": base & (d60 < 0) & (d60 >= -3) & (C >= m20) & (slope >= 0),
+        "C 站上季線後10天內回測不破（線上0～3%）": base & since & (d60 >= 0) & (d60 <= 3) & (ch < 0),
+        "D 突破60日新高": base & (C > hh60),
+        "D1 突破60日新高＋量1.5倍": base & (C > hh60) & (vr >= 1.5),
+        "D2 突破60日新高＋低檔（位置≤60）": base & (C > hh60) & (pos <= 60),
+        "E 突破120日新高": base & (C > hh120),
+        "E1 突破120日新高＋量2倍": base & (C > hh120) & (vr >= 2),
+        "F 盤整（2月振幅≤15%）後突破上緣": base & (rng42p <= 0.15) & (C > C.shift(1).rolling(42).max()),
+        "F1 盤整突破＋量2倍": base & (rng42p <= 0.15) & (C > C.shift(1).rolling(42).max()) & (vr >= 2),
+        "F2 窄幅盤整（20日振幅≤8%）後帶量突破": base & (rng20p <= 0.08) & (C > hh20) & (vr >= 1.5),
+        "G 均線多頭排列剛形成（5>20>60）": base & (m5 > m20) & (m20 > m60) & ~((m5.shift(1) > m20.shift(1)) & (m20.shift(1) > m60.shift(1))),
+        "H 月線穿越季線（黃金交叉）": base & (m20 > m60) & (m20.shift(1) <= m60.shift(1)),
+        "I 強勢股拉回月線（位置≥70、碰月線）": base & (pos >= 70) & (L <= m20) & (C >= m20) & (m20 > m60),
+        "J 一年新高": base & (C >= hi250.shift(1)),
+    }
+    BK = ((0, 25), (25, 40), (40, 60), (60, 101))
+    yrs = np.array([int(d[:4]) for d in dates])
+    for name, m in S.items():
+        mv = m.values & r20.notna().values
+        ri = np.where(mv)[0]
+        v20_ = r20.values[mv]
+        if len(v20_) < 200:
+            print(f"  突破｜{name}：樣本太少 {len(v20_)}", flush=True)
+            continue
+        f = lambda v: "%.1f%%/%+.2f%%" % ((v > 0).mean() * 100, v.mean() * 100) if len(v) >= 100 else "—"
+        v10_, v5_ = r10.values[mv], r5.values[mv]
+        parts = [f(v20_[(breadth[ri] >= lo) & (breadth[ri] < hi)]) for lo, hi in BK]
+        ys = [v20_[yrs[ri] == y].mean() * 100 for y in np.unique(yrs[ri]) if (yrs[ri] == y).sum() >= 50]
+        print("  突破｜%-26s n=%7d｜5日 %s｜10日 %s｜20日 %s｜大盤<25 %s｜25-40 %s｜40-60 %s｜>60 %s｜賺錢年 %d/%d 最差年 %+.1f%%" % (
+            name, len(v20_), f(v5_[~np.isnan(v5_)]), f(v10_[~np.isnan(v10_)]), f(v20_), parts[0], parts[1], parts[2], parts[3],
+            sum(1 for y in ys if y > 0), len(ys), min(ys) if ys else 0), flush=True)
 
 
 def diagnose(O, C, V, si, sj, ss, spr, breadth, dates):
