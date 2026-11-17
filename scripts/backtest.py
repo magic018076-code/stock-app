@@ -10,7 +10,7 @@ import json, os, time, datetime as dt
 
 TW = dt.timezone(dt.timedelta(hours=8))
 H = 20  # 看之後幾個交易日
-VER = 13  # 回測程式版本；改版時自動重跑
+VER = 14  # 回測程式版本；改版時自動重跑
 
 
 def frames(series, dates):
@@ -724,7 +724,7 @@ def plan_backtest(O, Hh, L, C, V, si, sj, ss, dates, breadth):
     start = np.r_[0, np.flatnonzero(np.diff(si)) + 1]
     cnt = np.diff(np.r_[start, len(si)])
     rank = (np.arange(len(si)) - np.repeat(start, cnt)) / np.repeat(cnt, cnt) * 100
-    keep = rank < TIERS[-1][2]
+    keep = (rank < TIERS[-1][2]) | (breadth[si] < 35)     # 大盤偏弱的日子保留全部股票，給對照組用
     si, sj, rank = si[keep], sj[keep], rank[keep]
     win = si[:, None] + np.arange(1, HOLD + 1)[None, :]
     okw = win[:, -1] < len(dates)
@@ -736,7 +736,9 @@ def plan_backtest(O, Hh, L, C, V, si, sj, ss, dates, breadth):
     # 最後一天沒有收盤價（停牌）就用之前最後一個有效收盤
     lastc = pd.DataFrame(Cw).ffill(axis=1).values[:, -1]
 
-    def sim(ks, kt, sel=None):
+    inlist = rank < TIERS[-1][2]                         # 在推薦名單內（前 12%）
+
+    def sim(ks, kt, sel=None, full=False):
         stop = px - ks * a
         tgt = px + kt * a if kt else np.full(len(px), np.inf)
         entry = Ow[:, 0]
@@ -752,6 +754,8 @@ def plan_backtest(O, Hh, L, C, V, si, sj, ss, dates, breadth):
         days = np.where(kind == 0, fs, np.where(kind == 1, ft, HOLD - 1)) + 1
         ret = ex / entry - 1 - COST
         m = valid if sel is None else valid & sel
+        if full:
+            return ret[m], kind[m], days[m], np.flatnonzero(m)
         return ret[m], kind[m], days[m], yrs[m], si[m]
 
     def summ(ret, kind, days):
@@ -762,7 +766,7 @@ def plan_backtest(O, Hh, L, C, V, si, sj, ss, dates, breadth):
                 "med": round(float(np.median(ret) * 100), 2), "aw": round(float(w.mean() * 100), 2) if len(w) else 0, "al": round(float(l.mean() * 100), 2) if len(l) else 0,
                 "stop": round(float((kind == 0).mean() * 100), 1), "tgt": round(float((kind == 1).mean() * 100), 1), "days": round(float(days.mean()), 1)}
 
-    top = br < STATES[1][2]                              # 只在綠燈、黃燈的日子進場（名單內前 12%）
+    top = (br < STATES[1][2]) & inlist                   # 只在綠燈、黃燈的日子進場（名單內前 12%）
     grid, best = [], None
     for ks in (1.5, 2.0, 2.5, 3.0):
         for kt in (2.0, 3.0, 4.0, 6.0, 0):
@@ -784,7 +788,7 @@ def plan_backtest(O, Hh, L, C, V, si, sj, ss, dates, breadth):
         return int(len(d)), int(1 + (np.diff(d) > 10).sum()) if len(d) else 0   # 交易日數、波段數（相隔超過 10 天算不同波段）
 
     for name, lo, hi in STATES:
-        ret, kind, days, yy, dd = sim(ks, kt, (br >= lo) & (br < hi))
+        ret, kind, days, yy, dd = sim(ks, kt, (br >= lo) & (br < hi) & inlist)
         st = summ(ret, kind, days)
         st["ndays"], st["nepi"] = episodes(dd)
         out["states"].append([name, lo, hi, st])
@@ -799,6 +803,136 @@ def plan_backtest(O, Hh, L, C, V, si, sj, ss, dates, breadth):
         out["years"].append([int(y), st])
         print(f"   {y}（綠燈＋黃燈）：{st['n']} 筆、{st['ndays']} 天｜勝率 {st['win']}% 平均 {st['avg']}%", flush=True)
     print(f"交易計畫回測：停損 {ks} ATR、目標 {kt or '不設'} ATR", flush=True)
+    try:
+        out["valid"] = plan_validate(sim, summ, dict(si=si, sj=sj, rank=rank, br=br, Ow=Ow, Lw=Lw, px=px, Cv=Cv, breadth=breadth, dates=dates, ks=ks, kt=kt, inlist=inlist))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print("建議買進驗證失敗", e, flush=True)
+    return out
+
+
+def portfolio_sim(trades, Cv, dates, M=10):
+    """用一筆資金照計畫操作：最多同時 M 檔、每檔投入當時資金的 1/M、每天依排名先買。回傳資金曲線統計。
+    trades: [(進場日索引, 出場日索引, 淨報酬, 股票欄, 排名, 進場價)]"""
+    import numpy as np
+    by_day = {}
+    for t in trades:
+        by_day.setdefault(t[0], []).append(t)
+    d0 = min(by_day) if by_day else 0
+    cash, pos, eq, taken, expo = 1.0, [], [], 0, 0
+    for t in range(d0, len(dates)):
+        val = 0.0
+        for p_ in pos:
+            c = Cv[t, p_["j"]]
+            if c == c:
+                p_["v"] = p_["alloc"] * c / p_["epx"]
+            val += p_["v"]
+        equity = cash + val
+        held = {p_["j"] for p_ in pos}
+        for tr_ in sorted(by_day.get(t, []), key=lambda x: x[4]):
+            if len(pos) >= M:
+                break
+            alloc = equity / M
+            if tr_[3] in held or cash < alloc * 0.999:
+                continue
+            cash -= alloc
+            pos.append({"j": tr_[3], "alloc": alloc, "epx": tr_[5], "exit": tr_[1], "ret": tr_[2], "v": alloc})
+            held.add(tr_[3]); taken += 1
+        for p_ in [x for x in pos if x["exit"] <= t]:
+            cash += p_["alloc"] * (1 + p_["ret"])
+            pos.remove(p_)
+        val = sum(p_["v"] for p_ in pos)
+        eq.append(cash + val)
+        expo += 1 if pos else 0
+    eq = np.array(eq)
+    if not len(eq):
+        return {"n": 0}
+    peak = np.maximum.accumulate(eq)
+    yrs = (dt.date.fromisoformat(dates[-1]) - dt.date.fromisoformat(dates[d0])).days / 365.25
+    ys, prev = [], 1.0
+    dd = dates[d0:]
+    for y in sorted({d[:4] for d in dd}):
+        last = max(i for i, d in enumerate(dd) if d[:4] == y)
+        ys.append([int(y), round(float((eq[last] / prev - 1) * 100), 1)])
+        prev = eq[last]
+    return {"n": taken, "final": round(float(eq[-1]), 2), "cagr": round(float((eq[-1] ** (1 / yrs) - 1) * 100), 1) if yrs > 0 else None,
+            "mdd": round(float(((eq / peak) - 1).min() * 100), 1), "expo": round(expo / len(eq) * 100, 1), "years": ys, "from": dates[d0]}
+
+
+def plan_validate(sim, summ, X):
+    """強化建議買進用的大數據驗證：進場時機、對照組、每一波的成績、資金模擬"""
+    import numpy as np
+    si, sj, rank, br, Ow, Lw, px, Cv, b, dates, ks, kt, inlist = (X[k] for k in ("si", "sj", "rank", "br", "Ow", "Lw", "px", "Cv", "breadth", "dates", "ks", "kt", "inlist"))
+    N = len(dates)
+    b = np.where(np.isnan(b), 50, b)
+    mn10 = np.array([b[max(0, i - 9):i + 1].min() for i in range(N)])
+    ret, kind, days, ix = sim(ks, kt, None, full=True)
+    S_si, S_sj, S_rank, S_br, S_in = si[ix], sj[ix], rank[ix], br[ix], inlist[ix]
+    entry = Ow[ix, 0]
+    mae = np.nanmin(Lw[ix], axis=1) / entry - 1                       # 持有期間最多套牢多少（概估）
+    mae = np.maximum(mae, (px[ix] - ks * (px[ix] - (px[ix] - 1e-9))) * 0 + mae)
+
+    def st(m):
+        o = summ(ret[m], kind[m], days[m])
+        if o["n"]:
+            o["mae"] = round(float(np.mean(mae[m]) * 100), 1)
+            o["ndays"] = int(len(np.unique(S_si[m])))
+        return o
+
+    out = {}
+    # 1. 進場時機
+    conds = {
+        "綠燈（<15%）": b < 15, "黃燈（15～25%）": (b >= 15) & (b < 25), "<10%": b < 10, "<20%": b < 20,
+        "綠燈且今天破底（10日最低）": (b < 15) & (b <= mn10),
+        "綠燈且已回升（比10日低點高≥2）": (b < 15) & (b >= mn10 + 2),
+        "止跌回升A：10日內曾<15、回升≥3、仍<30": (mn10 < 15) & (b >= mn10 + 3) & (b < 30),
+        "止跌回升B：10日內曾<20、回升≥5、仍<35": (mn10 < 20) & (b >= mn10 + 5) & (b < 35),
+        "止跌回升C：10日內曾<15、回升≥5、仍<35": (mn10 < 15) & (b >= mn10 + 5) & (b < 35),
+        "黃燈且今天破底": (b >= 15) & (b < 25) & (b <= mn10),
+        "黃燈且回升中（比10日低點高≥3）": (b >= 15) & (b < 25) & (b >= mn10 + 3),
+    }
+    out["timing"] = []
+    for name, c in conds.items():
+        o = st(c[S_si] & S_in)
+        out["timing"].append([name, o])
+        if o["n"]:
+            print("  強化1 進場時機｜%-28s %4d 天 %6d 筆｜勝率 %.1f%% 平均 %+.2f%%（賺 %+.1f%%／賠 %+.1f%%）｜平均最多套牢 %.1f%%" % (name, o["ndays"], o["n"], o["win"], o["avg"], o["aw"], o["al"], o["mae"]), flush=True)
+    # 2. 對照組：同樣的日子，名單內 vs 全部有流動性低檔股
+    out["bench"] = []
+    for name, lo, hi in (("綠燈", 0, 15), ("黃燈", 15, 25)):
+        d = (S_br >= lo) & (S_br < hi)
+        a_, t3, t12 = st(d), st(d & (S_rank < 3)), st(d & S_in)
+        out["bench"].append([name, a_, t12, t3])
+        if a_["n"] and t12["n"]:
+            print("  強化2 對照｜%s：全部低檔股 %+.2f%%（勝率 %.1f%%）｜名單前12%% %+.2f%%（%.1f%%）｜前3%% %+.2f%%（%.1f%%）" % (name, a_["avg"], a_["win"], t12["avg"], t12["win"], t3.get("avg", 0), t3.get("win", 0)), flush=True)
+    # 3. 每一波的成績（綠燈＋黃燈，名單內）
+    g = (S_br < 25) & S_in
+    dd = np.unique(S_si[g])
+    epi, start = [], 0
+    for k in range(1, len(dd) + 1):
+        if k == len(dd) or dd[k] - dd[k - 1] > 10:
+            seg = dd[start:k]
+            m = g & (S_si >= seg[0]) & (S_si <= seg[-1])
+            o = st(m)
+            epi.append({"from": dates[seg[0]], "to": dates[seg[-1]], "days": int(len(seg)), "minb": round(float(b[seg].min()), 1), "n": o["n"], "win": o.get("win"), "avg": o.get("avg"), "mae": o.get("mae")})
+            start = k
+    out["episodes"] = epi
+    for e in epi:
+        print(f"  強化3 波段｜{e['from']}～{e['to']} {e['days']} 天 大盤最低 {e['minb']}%｜{e['n']} 筆 勝率 {e['win']}% 平均 {e['avg']}% 最多套牢 {e['mae']}%", flush=True)
+    out["epi_win"] = [sum(1 for e in epi if (e["avg"] or 0) > 0), len(epi)]
+    # 4. 資金模擬
+    def trades(mask):
+        idx = np.flatnonzero(mask)
+        return [(int(S_si[i] + 1), int(S_si[i] + days[i]), float(ret[i]), int(S_sj[i]), float(S_rank[i]), float(entry[i])) for i in idx]
+    out["port"] = {}
+    for name, m in (("綠燈＋黃燈", (S_br < 25) & S_in), ("只做綠燈", (S_br < 15) & S_in), ("止跌回升A", conds["止跌回升A：10日內曾<15、回升≥3、仍<30"][S_si] & S_in),
+                    ("綠燈＋止跌回升A", (conds["綠燈（<15%）"] | conds["止跌回升A：10日內曾<15、回升≥3、仍<30"])[S_si] & S_in), ("每天都做（不看燈號）", S_in)):
+        for M in (10, 5):
+            r = portfolio_sim(trades(m), Cv, dates, M)
+            out["port"][f"{name}/{M}"] = r
+            if r.get("n"):
+                print(f"  強化4 資金模擬｜{name}・最多 {M} 檔：{r['n']} 筆｜10 年變 {r['final']} 倍 年化 {r['cagr']}% 最大回檔 {r['mdd']}% 持股天數 {r['expo']}%｜各年 {r['years']}", flush=True)
     return out
 
 
