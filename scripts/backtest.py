@@ -10,7 +10,7 @@ import json, os, time, datetime as dt
 
 TW = dt.timezone(dt.timedelta(hours=8))
 H = 20  # 看之後幾個交易日
-VER = 16  # 回測程式版本；改版時自動重跑
+VER = 17  # 回測程式版本；改版時自動重跑
 
 
 def frames(series, dates):
@@ -233,6 +233,7 @@ def run(series, dates):
         rvy = rev_frame(C)                                   # 當時已公布的最新月營收年增率
         above = (C > m60)
         breadth = (above.sum(axis=1) / C.notna().sum(axis=1) * 100)  # 全市場站上季線的比例（大盤多空）
+        breadth[m60.notna().sum(axis=1) < C.notna().sum(axis=1) * 0.5] = np.nan   # 資料最前面季線還算不出來的日子，不算
         mkt = pd.DataFrame(np.repeat(breadth.values[:, None], C.shape[1], axis=1), index=C.index, columns=C.columns)
         F = {"d60": (C / m60 - 1) * 100, "slope": slope, "m20": (C >= m20).astype(float), "ch": ch, "vr": vr,
              "u60": u60, "pos": pos, "r5": (C / C.shift(5) - 1) * 100, "r10": (C / C.shift(10) - 1) * 100,
@@ -311,9 +312,10 @@ def fit_model(F, fwd, fmx, U, dates, split="2023-01-01", end=None, quiet=False):
     ymx = fmx.values[mask]
     ok = ~np.isnan(y)
     X = {k: v.values[mask] for k, v in F.items()}
-    ytr = y[tr & ok]
-    mu = float(np.mean(ytr))
+    yy = np.array([int(d[:4]) for d in di[rows[0]]])
     feats, score = [], np.zeros(len(y))
+    # 每一年分開算「這一段比當年平均好多少」，再把各年結果取截尾平均。
+    # 這樣 2008 金融海嘯那種極端年份（報酬幅度特別大）就不會壓過其他十幾年，模型才不會被單一年份教壞。
     for k, x in X.items():
         good = ~np.isnan(x)
         xt = x[tr & ok & good]
@@ -322,12 +324,24 @@ def fit_model(F, fwd, fmx, U, dates, split="2023-01-01", end=None, quiet=False):
         uniq = np.unique(xt)
         edges = [0.5] if len(uniq) <= 2 else sorted(set(np.round(np.quantile(xt, [0.2, 0.4, 0.6, 0.8]), 4).tolist()))
         b = np.searchsorted(edges, x, side="right")
+        base = tr & ok & good
+        yrs = sorted(set(yy[base].tolist()))
+        D = np.full((len(yrs), len(edges) + 1), np.nan)
+        for a, Y in enumerate(yrs):
+            sy = base & (yy == Y)
+            mu_y = float(np.mean(y[sy]))
+            for i in range(len(edges) + 1):
+                sel = sy & (b == i)
+                if sel.sum() >= 200:
+                    D[a, i] = (float(np.mean(y[sel])) - mu_y) * 100
         pts = []
         for i in range(len(edges) + 1):
-            sel = tr & ok & good & (b == i)
-            nb = int(sel.sum())
-            d = (float(np.mean(y[sel])) - mu) * 100 if nb else 0.0
-            pts.append(round(d * nb / (nb + 5000), 3))   # 樣本少的段落分數打折，避免過度相信
+            c = D[:, i][~np.isnan(D[:, i])]
+            if len(c) < 2:
+                pts.append(0.0)
+                continue
+            lo, hi = np.percentile(c, [10, 90])
+            pts.append(round(float(np.mean(np.clip(c, lo, hi))) * len(c) / (len(c) + 2), 3))   # 年數少的打折
         score += np.where(good, np.array(pts)[b], 0)
         feats.append({"k": k, "name": FEAT_NAME.get(k, k), "e": edges, "p": pts})
     q = np.quantile(score[tr & ok], np.linspace(0, 1, 101)).round(4).tolist()
