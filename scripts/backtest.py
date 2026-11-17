@@ -10,7 +10,7 @@ import json, os, time, datetime as dt
 
 TW = dt.timezone(dt.timedelta(hours=8))
 H = 20  # 看之後幾個交易日
-VER = 3  # 回測程式版本；改版時自動重跑
+VER = 4  # 回測程式版本；改版時自動重跑
 
 
 def frames(series, dates):
@@ -26,6 +26,35 @@ def frames(series, dates):
             Hh[i, j], L[i, j], C[i, j], V[i, j] = r[4], r[5], r[6], r[7]
     mk = lambda a: pd.DataFrame(a, index=dates, columns=cols)
     return mk(C), mk(Hh), mk(L), mk(V)
+
+
+def rev_frame(C):
+    """每個交易日當時「已經公布」的最新月營收年增率（每月 10 日前公布上個月營收，所以 11 日起才用上個月的）"""
+    import gzip, numpy as np, pandas as pd
+    try:
+        with gzip.open("cache/rev.json.gz", "rt", encoding="utf-8") as f:
+            rev = json.load(f)
+    except Exception:
+        return pd.DataFrame(np.nan, index=C.index, columns=C.columns)
+    out = np.full(C.shape, np.nan)
+    cols = {c: j for j, c in enumerate(C.columns)}
+    keymap = {}
+    for i, d in enumerate(C.index):
+        y, m, day = int(d[:4]), int(d[5:7]), int(d[8:10])
+        back = 1 if day >= 11 else 2
+        m -= back
+        while m <= 0:
+            m += 12; y -= 1
+        keymap.setdefault(f"{y}{m:02d}", []).append(i)
+    for ym, idx in keymap.items():
+        mon = rev.get(ym)
+        if not mon:
+            continue
+        for c, v in mon.items():
+            j = cols.get(c)
+            if j is not None and v[2] is not None:
+                out[idx, j] = max(-100.0, min(300.0, v[2]))
+    return pd.DataFrame(out, index=C.index, columns=C.columns)
 
 
 def stats(ret, mx):
@@ -110,16 +139,41 @@ def run(series, dates):
         k = (SB >= lo) & (SB < hi)
         sug["buckets"].append([lab, lo, stats(RB[k], XB[k])])
 
-    # ---------- 用資料校準評分（模型）：2017～2022 學習，2023 之後檢驗 ----------
+    # ---------- 用資料校準評分（模型 v2）：更多條件＋逐年檢驗 ----------
     model = model60 = None
     try:
+        rvy = rev_frame(C)                                   # 當時已公布的最新月營收年增率
+        above = (C > m60)
+        breadth = (above.sum(axis=1) / C.notna().sum(axis=1) * 100)  # 全市場站上季線的比例（大盤多空）
+        mkt = pd.DataFrame(np.repeat(breadth.values[:, None], C.shape[1], axis=1), index=C.index, columns=C.columns)
         F = {"d60": (C / m60 - 1) * 100, "slope": slope, "m20": (C >= m20).astype(float), "ch": ch, "vr": vr,
-             "u60": u60, "pos": pos, "r10": (C / C.shift(10) - 1) * 100, "r60": (C / C.shift(60) - 1) * 100,
-             "dd": (C / hi250 - 1) * 100, "rng42": rng42 * 100, "bo": bo.astype(float), "gap": gap}
-        model = fit_model(F, fwd, fmx, (pos <= 60) & (v20 >= 100) & valid, dates)
-        fwd60 = C.shift(-60) / C - 1
-        fmx60 = Hh[::-1].rolling(60, min_periods=60).max()[::-1].shift(-1) / C - 1
-        model60 = fit_model(F, fwd60, fmx60, (pos <= 60) & (v20 >= 100) & fwd60.notna() & C.notna(), dates)
+             "u60": u60, "pos": pos, "r5": (C / C.shift(5) - 1) * 100, "r10": (C / C.shift(10) - 1) * 100,
+             "r60": (C / C.shift(60) - 1) * 100, "dd": (C / hi250 - 1) * 100, "rng42": rng42 * 100, "bo": bo.astype(float),
+             "gap": gap, "vol20": C.pct_change().rolling(20).std() * 100, "amt": (C * V.rolling(20).mean() / 1e5),
+             "rvy": rvy, "mkt": mkt}
+        U = (pos <= 60) & (v20 >= 100) & valid
+        # 逐年檢驗：每一年都只用「那一年以前」的資料學習，再預測那一年
+        y0 = int(dates[0][:4]) + 4
+        wf = []
+        pool_pr, pool_y, pool_mx = [], [], []
+        for Y in range(y0, int(dates[-1][:4]) + 1):
+            r = fit_model(F, fwd, fmx, U, dates, split=f"{Y}-01-01", end=f"{Y + 1}-01-01", quiet=True)
+            if r and r.get("_te") is not None:
+                pool_pr.append(r["_te"][0]); pool_y.append(r["_te"][1]); pool_mx.append(r["_te"][2])
+                wf.append([Y, r["test_base"], r["test_top"], r["test_top5"]])
+                print(f"  逐年檢驗 {Y}：全部 上漲 {r['test_base'].get('win')}% 平均 {r['test_base'].get('avg')}%｜前 10% 上漲 {r['test_top'].get('win')}% 平均 {r['test_top'].get('avg')}%", flush=True)
+        # 實際使用的模型：用全部已知結果的資料學習
+        model = fit_model(F, fwd, fmx, U, dates, split=dates[-H - 1], quiet=True)
+        if pool_pr:
+            P, Yr, Mx = np.concatenate(pool_pr), np.concatenate(pool_y), np.concatenate(pool_mx)
+            st = lambda sel: _st(Yr, Mx, sel)
+            model["test_dec"] = [[lo, st((P >= lo) & (P < lo + 10))] for lo in range(0, 100, 10)]
+            model["test_base"], model["test_top"], model["test_top5"], model["test_bot"] = st(P >= 0), st(P >= 90), st(P >= 95), st(P < 10)
+            model["test"] = [f"{wf[0][0]}-01", dates[-1][:7]]
+            model["wf"] = wf
+            print("模型 v2 逐年檢驗合計：全部 上漲 %s%% 平均 %s%%｜前 10%% 上漲 %s%% 平均 %s%%｜前 5%% 上漲 %s%% 平均 %s%%" % (
+                model["test_base"]["win"], model["test_base"]["avg"], model["test_top"]["win"], model["test_top"]["avg"], model["test_top5"]["win"], model["test_top5"]["avg"]), flush=True)
+        model.pop("_te", None)
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -131,11 +185,22 @@ def run(series, dates):
     return out
 
 
-FEAT_NAME = {"d60": "離季線", "slope": "季線方向", "m20": "站上月線", "ch": "今日漲跌", "vr": "今日量／20日均量", "u60": "季線下天數",
+FEAT_NAME = {"r5": "近5日漲跌", "vol20": "波動度", "amt": "成交金額(億)", "rvy": "營收年增", "mkt": "大盤站上季線比例", "d60": "離季線", "slope": "季線方向", "m20": "站上月線", "ch": "今日漲跌", "vr": "今日量／20日均量", "u60": "季線下天數",
              "pos": "一年位置", "r10": "近10日漲跌", "r60": "近60日漲跌", "dd": "距一年高點", "rng42": "近2月振幅", "bo": "創60日新高", "gap": "月季線差距"}
 
 
-def fit_model(F, fwd, fmx, U, dates, split="2023-01-01"):
+def _st(y, ymx, sel):
+    import numpy as np
+    if not sel.sum():
+        return {"n": 0}
+    r, m = y[sel], ymx[sel]
+    m = m[~np.isnan(m)]
+    return {"n": int(sel.sum()), "win": round(float((r > 0).mean() * 100), 1), "avg": round(float(r.mean() * 100), 2),
+            "med": round(float(np.median(r) * 100), 2), "mx": round(float(m.mean() * 100), 2) if len(m) else None,
+            "up10": round(float((m >= 0.10).mean() * 100), 1) if len(m) else None}
+
+
+def fit_model(F, fwd, fmx, U, dates, split="2023-01-01", end=None, quiet=False):
     """把每個條件分成 5 段（是／否的條件分 2 段），看學習期間每段之後 20 天的平均報酬比整體高多少，當作那一段的分數；
     總分＝各條件分數加總。再用沒參與學習的檢驗期間，看高分股票是不是真的比較好。"""
     import numpy as np
@@ -166,21 +231,18 @@ def fit_model(F, fwd, fmx, U, dates, split="2023-01-01"):
         feats.append({"k": k, "name": FEAT_NAME.get(k, k), "e": edges, "p": pts})
     q = np.quantile(score[tr & ok], np.linspace(0, 1, 101)).round(4).tolist()
     pr = np.searchsorted(q, score, side="right") - 1          # 分數→百分位（0～100）
-    te = (~tr) & ok
-    def st(sel):
-        r, m = y[sel], ymx[sel]
-        m = m[~np.isnan(m)]
-        return {"n": int(sel.sum()), "win": round(float((r > 0).mean() * 100), 1), "avg": round(float(r.mean() * 100), 2),
-                "med": round(float(np.median(r) * 100), 2), "mx": round(float(m.mean() * 100), 2) if len(m) else None,
-                "up10": round(float((m >= 0.10).mean() * 100), 1) if len(m) else None} if sel.sum() else {"n": 0}
+    te = (~tr) & ok & ((di[rows[0]] < end) if end else True)
+    st = lambda sel: _st(y, ymx, sel)
     dec = []
     for lo in range(0, 100, 10):
         dec.append([lo, st(te & (pr >= lo) & (pr < lo + 10))])
     res = {"feats": feats, "q": q, "split": split, "train": [min(di[rows[0]][tr].tolist()), max(di[rows[0]][tr].tolist())],
-           "test": [min(di[rows[0]][~tr].tolist()), max(di[rows[0]][~tr].tolist())], "test_base": st(te), "test_dec": dec,
+           "test": [min(di[rows[0]][te].tolist()), max(di[rows[0]][te].tolist())] if te.sum() else None, "test_base": st(te), "test_dec": dec,
            "test_top": st(te & (pr >= 90)), "test_top5": st(te & (pr >= 95)), "test_bot": st(te & (pr < 10))}
-    print("模型檢驗（2023 之後）：全部 上漲 %s%% 平均 %s%%｜前 10%% 上漲 %s%% 平均 %s%%｜後 10%% 上漲 %s%% 平均 %s%%" % (
-        res["test_base"]["win"], res["test_base"]["avg"], res["test_top"]["win"], res["test_top"]["avg"], res["test_bot"]["win"], res["test_bot"]["avg"]), flush=True)
+    res["_te"] = (pr[te], y[te], ymx[te]) if te.sum() else None
+    if not quiet:
+        print("模型檢驗：全部 上漲 %s%% 平均 %s%%｜前 10%% 上漲 %s%% 平均 %s%%" % (
+            res["test_base"].get("win"), res["test_base"].get("avg"), res["test_top"].get("win"), res["test_top"].get("avg")), flush=True)
     return res
 
 
@@ -222,6 +284,13 @@ def score_today(series, dates, fund=None, ind=None, top=150):
     last = dates[-1]
     feats = {f["k"]: f for f in m["feats"]}
     out, rows = {}, []
+    # 大盤多空：今天全市場站上季線的比例
+    up = tot = 0
+    for c, rs in series.items():
+        if len(rs) >= 60 and rs[-1][0] == last and not c.startswith("00"):
+            tot += 1
+            up += 1 if rs[-1][6] > sum(r[6] for r in rs[-60:]) / 60 else 0
+    breadth = up / tot * 100 if tot else 50
     for c, rs in series.items():
         if c.startswith("00") or len(rs) < 260 or rs[-1][0] != last:
             continue
@@ -245,7 +314,15 @@ def score_today(series, dates, fund=None, ind=None, top=150):
              "ch": (px / C[-2] - 1) * 100, "vr": V[-1] / v20 if v20 else 0, "u60": u60, "pos": pos,
              "r10": (px / C[-11] - 1) * 100, "r60": (px / C[-61] - 1) * 100, "dd": (px / hi250 - 1) * 100,
              "rng42": (max(C[-42:]) / min(C[-42:]) - 1) * 100, "bo": 1.0 if px > max(C[-61:-1]) else 0.0,
-             "gap": abs(m20 - m60) / m60 * 100}
+             "gap": abs(m20 - m60) / m60 * 100,
+             "r5": (px / C[-6] - 1) * 100, "amt": px * sum(V[-20:]) / 20 / 1e5, "mkt": breadth,
+             "vol20": (lambda rr: (sum((x - sum(rr) / len(rr)) ** 2 for x in rr) / (len(rr) - 1)) ** 0.5 * 100)([C[i] / C[i - 1] - 1 for i in range(len(C) - 20, len(C))])}
+        rv = ((fund or {}).get("s", {}).get(c, {}) or {}).get("rvy")
+        if isinstance(rv, (int, float)):
+            x["rvy"] = max(-100.0, min(300.0, rv))
+        # ATR（14 日平均真實波幅）：給停損、目標價用
+        trs = [max(Hh[i] - L[i], abs(Hh[i] - C[i - 1]), abs(L[i] - C[i - 1])) for i in range(len(C) - 14, len(C))]
+        atr = sum(trs) / len(trs)
         sc, pts = 0.0, []
         for k, v in x.items():
             f = feats.get(k)
@@ -258,11 +335,12 @@ def score_today(series, dates, fund=None, ind=None, top=150):
         out[c] = pr
         rows.append({"c": c, "n": rs[-1][1], "m": rs[-1][2], "px": round(px, 2), "ch": round(x["ch"], 2), "ai": pr,
                      "raw": round(sc, 2), "ic": (ind or {}).get(c, ""), "pts": sorted(pts, key=lambda z: -z[1])[:6],
-                     "v20": round(v20), "pos": round(pos, 1), "d60": round(x["d60"], 1), "r60": round(x["r60"], 1), "dd": round(x["dd"], 1),
+                     "v20": round(v20), "pos": round(pos, 1), "atr": round(atr, 2), "lo10": round(min(L[-10:]), 2), "d60": round(x["d60"], 1), "r60": round(x["r60"], 1), "dd": round(x["dd"], 1),
                      **{k: v for k, v in ((fund or {}).get("s", {}).get(c, {})).items() if k in ("pe", "dy", "pb", "rvy", "fs", "ts")}})
     rows.sort(key=lambda r: -r["raw"])
     res = {"date": last, "model_test": m.get("test"), "dec": m.get("test_dec"), "base": m.get("test_base"),
-           "top5": m.get("test_top5"), "items": rows[:top], "n": len(rows)}
+           "top5": m.get("test_top5"), "top10": m.get("test_top"), "wf": m.get("wf"), "breadth": round(breadth, 1),
+           "items": rows[:top], "n": len(rows)}
     os.makedirs("out", exist_ok=True)
     json.dump(res, open("out/ai.json", "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
     print(f"數據評分：{len(rows)} 檔，精選前 {min(top, len(rows))} 檔", flush=True)
