@@ -10,7 +10,7 @@ import json, os, time, datetime as dt
 
 TW = dt.timezone(dt.timedelta(hours=8))
 H = 20  # 看之後幾個交易日
-VER = 9  # 回測程式版本；改版時自動重跑
+VER = 10  # 回測程式版本；改版時自動重跑
 
 
 def frames(series, dates):
@@ -214,7 +214,7 @@ def run(series, dates):
                 diagnose(O, C, V, np.concatenate(sig_i), np.concatenate(sig_j), np.concatenate(sig_s), np.concatenate(pool_pr), breadth.values, dates)
             except Exception as e:
                 import traceback; traceback.print_exc()
-            plan = plan_backtest(O, Hh, L, C, V, np.concatenate(sig_i), np.concatenate(sig_j), np.concatenate(sig_s), dates)
+            plan = plan_backtest(O, Hh, L, C, V, np.concatenate(sig_i), np.concatenate(sig_j), np.concatenate(sig_s), dates, breadth.values)
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -290,6 +290,7 @@ def fit_model(F, fwd, fmx, U, dates, split="2023-01-01", end=None, quiet=False):
 COST = 0.00585   # 買賣手續費 0.1425%×2 ＋ 證交稅 0.3%
 LIQ = 0.2        # 日均成交金額至少 0.2 億（2,000 萬）才推薦
 TIERS = (("s", 0, 3), ("b", 3, 6), ("w", 6, 12))   # 依當天排名：前 3%、3～6%、6～12%
+STATES = (("green", 0, 15), ("yellow", 15, 25), ("red", 25, 40), ("black", 40, 101))   # 大盤燈號：全市場站上季線的比例
 HOLD = 20
 
 
@@ -346,7 +347,7 @@ def diagnose(O, C, V, si, sj, ss, spr, breadth, dates):
         show(f"{y} 大盤<25%＋有流動性＋每日前10%", (rk_liq < 10) & (br < 25) & (yrs == y), oc)
 
 
-def plan_backtest(O, Hh, L, C, V, si, sj, ss, dates):
+def plan_backtest(O, Hh, L, C, V, si, sj, ss, dates, breadth):
     """照實際操作模擬「建議買進」：訊號當天收盤後選股 → 隔天開盤買（開太高不追）→ 碰停損賣、碰目標賣、最多抱 20 天。
     訊號用逐年檢驗的分數（每年只用之前的資料學習），報酬已扣手續費和證交稅。"""
     import numpy as np, pandas as pd
@@ -371,6 +372,7 @@ def plan_backtest(O, Hh, L, C, V, si, sj, ss, dates):
     Ow, Hw, Lw, Cw = Ov[win, sj[:, None]], Hv[win, sj[:, None]], Lv[win, sj[:, None]], Cv[win, sj[:, None]]
     px, a = Cv[si, sj], atr[si, sj]
     yrs = np.array([int(dates[i][:4]) for i in si])
+    br = breadth[si]                                   # 訊號當天的大盤狀態（全市場站上季線比例）
     # 最後一天沒有收盤價（停牌）就用之前最後一個有效收盤
     lastc = pd.DataFrame(Cw).ffill(axis=1).values[:, -1]
 
@@ -390,7 +392,7 @@ def plan_backtest(O, Hh, L, C, V, si, sj, ss, dates):
         days = np.where(kind == 0, fs, np.where(kind == 1, ft, HOLD - 1)) + 1
         ret = ex / entry - 1 - COST
         m = valid if sel is None else valid & sel
-        return ret[m], kind[m], days[m], yrs[m]
+        return ret[m], kind[m], days[m], yrs[m], si[m]
 
     def summ(ret, kind, days):
         if not len(ret):
@@ -400,11 +402,11 @@ def plan_backtest(O, Hh, L, C, V, si, sj, ss, dates):
                 "med": round(float(np.median(ret) * 100), 2), "aw": round(float(w.mean() * 100), 2) if len(w) else 0, "al": round(float(l.mean() * 100), 2) if len(l) else 0,
                 "stop": round(float((kind == 0).mean() * 100), 1), "tgt": round(float((kind == 1).mean() * 100), 1), "days": round(float(days.mean()), 1)}
 
-    top = rank < TIERS[0][2]
+    top = br < STATES[1][2]                              # 只在綠燈、黃燈的日子進場（名單內前 12%）
     grid, best = [], None
     for ks in (1.5, 2.0, 2.5, 3.0):
         for kt in (2.0, 3.0, 4.0, 6.0, 0):
-            ret, kind, days, yy = sim(ks, kt, top)
+            ret, kind, days, yy, _ = sim(ks, kt, top)
             st = summ(ret, kind, days)
             if not st["n"]:
                 continue
@@ -414,18 +416,29 @@ def plan_backtest(O, Hh, L, C, V, si, sj, ss, dates):
             key = st["avg"] + 0.5 * st["worst"]               # 平均要高，最差的年也不能太差
             if best is None or key > best[0]:
                 best = (key, ks, kt)
-    _, ks, kt = best
-    out = {"ks": ks, "kt": kt, "hold": HOLD, "cost": COST * 100, "liq": LIQ, "grid": grid, "tiers": {}, "years": []}
+    _, ks, kt = best or (0, 2.5, 4.0)   # 沒有任何可進場的日子時用預設值
+    out = {"ks": ks, "kt": kt, "hold": HOLD, "cost": COST * 100, "liq": LIQ, "grid": grid, "tiers": {}, "years": [], "states": []}
+
+    def episodes(days_idx):
+        d = np.unique(days_idx)
+        return int(len(d)), int(1 + (np.diff(d) > 10).sum()) if len(d) else 0   # 交易日數、波段數（相隔超過 10 天算不同波段）
+
+    for name, lo, hi in STATES:
+        ret, kind, days, yy, dd = sim(ks, kt, (br >= lo) & (br < hi))
+        st = summ(ret, kind, days)
+        st["ndays"], st["nepi"] = episodes(dd)
+        out["states"].append([name, lo, hi, st])
+        print(f"交易計畫｜{name}（大盤 {lo}～{hi}%）：{st.get('n')} 筆、{st['ndays']} 個交易日、{st['nepi']} 個波段｜勝率 {st.get('win')}% 平均每筆 {st.get('avg')}%（賺 {st.get('aw')}%／賠 {st.get('al')}%）停損 {st.get('stop')}% 達標 {st.get('tgt')}% 抱 {st.get('days')} 天", flush=True)
     for name, lo, hi in TIERS:
-        ret, kind, days, yy = sim(ks, kt, (rank >= lo) & (rank < hi))
+        ret, kind, days, yy, _ = sim(ks, kt, top & (rank >= lo) & (rank < hi))
         out["tiers"][name] = summ(ret, kind, days)
-    ret, kind, days, yy = sim(ks, kt, top)
+    ret, kind, days, yy, dd = sim(ks, kt, top)
     for y in np.unique(yy):
-        out["years"].append([int(y), summ(ret[yy == y], kind[yy == y], days[yy == y])])
-    t = out["tiers"]["s"]
-    print(f"交易計畫回測：停損 {ks} ATR、目標 {kt or '不設'} ATR｜前 3%：{t['n']} 筆 勝率 {t['win']}% 平均每筆 {t['avg']}%（賺 {t['aw']}%／賠 {t['al']}%）停損出場 {t['stop']}% 達標 {t['tgt']}% 平均抱 {t['days']} 天", flush=True)
-    for y, st in out["years"]:
-        print(f"   {y}：{st['n']} 筆 勝率 {st['win']}% 平均 {st['avg']}%", flush=True)
+        st = summ(ret[yy == y], kind[yy == y], days[yy == y])
+        st["ndays"], st["nepi"] = episodes(dd[yy == y])
+        out["years"].append([int(y), st])
+        print(f"   {y}（綠燈＋黃燈）：{st['n']} 筆、{st['ndays']} 天｜勝率 {st['win']}% 平均 {st['avg']}%", flush=True)
+    print(f"交易計畫回測：停損 {ks} ATR、目標 {kt or '不設'} ATR", flush=True)
     return out
 
 
@@ -475,6 +488,28 @@ def score_today(series, dates, fund=None, ind=None, top=150, warn=None):
             tot += 1
             up += 1 if rs[-1][6] > sum(r[6] for r in rs[-60:]) / 60 else 0
     breadth = up / tot * 100 if tot else 50
+    # 最近 120 個交易日的大盤狀態（畫趨勢用）
+    bh = []
+    try:
+        dl = dates[-120:]
+        cnt = {d: [0, 0] for d in dl}
+        for c, rs in series.items():
+            if c.startswith("00") or len(rs) < 200:
+                continue
+            cl = [r[6] for r in rs]
+            run = sum(cl[-180:-120]) if len(cl) >= 180 else None
+            if run is None:
+                continue
+            base = len(rs) - 120
+            for k in range(base, len(rs)):
+                run += cl[k] - cl[k - 60]
+                d = rs[k][0]
+                if d in cnt:
+                    cnt[d][1] += 1
+                    cnt[d][0] += 1 if cl[k] > run / 60 else 0
+        bh = [[int(d.replace("-", "")), round(v[0] / v[1] * 100, 1)] for d, v in cnt.items() if v[1]]
+    except Exception as e:
+        print("大盤狀態歷史失敗", e, flush=True)
     for c, rs in series.items():
         if c.startswith("00") or len(rs) < 260 or rs[-1][0] != last:
             continue
@@ -544,11 +579,12 @@ def score_today(series, dates, fund=None, ind=None, top=150, warn=None):
             r["stop"] = round(r["px"] - ks * r["atr"], 2)
             r["tgt"] = round(r["px"] + kt * r["atr"], 2) if kt else None
             r["nc"] = round(r["px"] + r["atr"], 2)       # 不追價：隔天開盤高於這個價就不買
+    state = next((n_ for n_, lo, hi in STATES if lo <= breadth < hi), "black")
     recs = [r for r in rows if r.get("tier")]
-    track = update_track(series, last, recs)
+    track = update_track(series, last, recs if state in ("green", "yellow") else [])   # 紅燈的日子不算推薦
     keep = {r["c"] for r in rows[:top]} | {r["c"] for r in recs}
-    res = {"date": last, "plan": {k: plan.get(k) for k in ("ks", "kt", "hold", "cost", "liq", "tiers", "years")} if plan else None, "track": track, "model_test": m.get("test"), "dec": m.get("test_dec"), "base": m.get("test_base"),
-           "top5": m.get("test_top5"), "top10": m.get("test_top"), "wf": m.get("wf"), "breadth": round(breadth, 1),
+    res = {"date": last, "plan": {k: plan.get(k) for k in ("ks", "kt", "hold", "cost", "liq", "tiers", "years", "states")} if plan else None, "track": track, "state": state, "model_test": m.get("test"), "dec": m.get("test_dec"), "base": m.get("test_base"),
+           "top5": m.get("test_top5"), "top10": m.get("test_top"), "wf": m.get("wf"), "breadth": round(breadth, 1), "bh": bh,
            "items": [r for r in rows if r["c"] in keep], "n": len(rows), "nliq": len(liquid)}
     os.makedirs("out", exist_ok=True)
     json.dump(res, open("out/ai.json", "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
