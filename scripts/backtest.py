@@ -10,7 +10,7 @@ import json, os, time, datetime as dt
 
 TW = dt.timezone(dt.timedelta(hours=8))
 H = 20  # 看之後幾個交易日
-VER = 12  # 回測程式版本；改版時自動重跑
+VER = 13  # 回測程式版本；改版時自動重跑
 
 
 def frames(series, dates):
@@ -143,6 +143,12 @@ def run(series, dates):
     brk = None
     try:
         brk = momentum_plan(O, Hh, L, C, V, dates)
+        try:
+            brk["valid"] = brk_validate(O, Hh, L, C, V, dates, series)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print("突破驗證失敗", e, flush=True)
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -493,6 +499,158 @@ def momentum_plan(O, Hh, L, C, V, dates):
             for lo, hi in ((0, 1), (1, 2), (2, 99)):
                 m = (vv >= lo) & (vv < hi)
                 print(f"     量 {lo}～{hi} 倍：{summ(ret[m], days[m], si[m])}", flush=True)
+    return out
+
+
+def brk_validate(O, Hh, L, C, V, dates, series):
+    """用大數據檢驗「即將突破」：對照組、逐年挑參數、抽樣可信範圍、程式一致性、觀察名單的突破機率"""
+    import numpy as np
+    rng = np.random.default_rng(7)
+    sig, atr, breadth, vr, pos = brk_signals(Hh, L, C, V)
+    Cv, Hv, Lv, Ov, Av = C.values, Hh.values, L.values, O.values, atr.values
+    N, MAXH = len(dates), 60
+    yrs_all = np.array([int(d[:4]) for d in dates])
+    mon_all = np.array([d[:7] for d in dates])
+
+    def prep(si, sj):
+        ok = si + MAXH < N
+        si, sj = si[ok], sj[ok]
+        win = si[:, None] + np.arange(1, MAXH + 1)[None, :]
+        return si, sj, Ov[win, sj[:, None]], Lv[win, sj[:, None]], Cv[win, sj[:, None]]
+
+    def sim(P, ks, trail, hold):
+        si, sj, Ow, Lw, Cw = P
+        px, a = Cv[si, sj], Av[si, sj]
+        entry = Ow[:, 0]
+        ok = ~np.isnan(entry) & (entry <= px + a)
+        stop = px - ks * a
+        alive, ex, peak = ok.copy(), np.full(len(px), np.nan), px.copy()
+        for d in range(hold):
+            hit = alive & (Lw[:, d] <= stop)
+            ex[hit] = np.minimum(stop[hit], Ow[hit, d])
+            alive &= ~hit
+            if trail:
+                peak = np.where(alive & ~np.isnan(Cw[:, d]), np.maximum(peak, Cw[:, d]), peak)
+                stop = np.where(alive, np.maximum(stop, peak - trail * a), stop)
+        last = Cw[:, hold - 1]
+        for d in range(hold - 2, -1, -1):
+            last = np.where(np.isnan(last), Cw[:, d], last)
+        ex[alive] = last[alive]
+        ret = ex / entry - 1 - COST
+        m = ok & ~np.isnan(ret)
+        return ret[m], si[m]
+
+    out = {}
+    PJ = prep(*np.where(sig["Jf"].values))
+    ret, si = sim(PJ, 3.0, 0, 60)
+    # 1. 對照組：同樣規則套在隨機抽的有流動性股票
+    base = (sig["J"] | ~sig["J"]) & (C * V.rolling(20).mean() / 1e5 >= LIQ) & atr.notna() & C.notna()
+    bi, bj = np.where(base.values)
+    pick = rng.choice(len(bi), size=min(len(bi), 200000), replace=False)
+    rb, sb = sim(prep(bi[pick], bj[pick]), 3.0, 0, 60)
+    print("  驗證1 對照組｜創一年新高：%d 筆 勝率 %.1f%% 平均 %+.2f%%｜隨機有流動性股票：%d 筆 勝率 %.1f%% 平均 %+.2f%%｜差距 %+.2f%%" % (
+        len(ret), (ret > 0).mean() * 100, ret.mean() * 100, len(rb), (rb > 0).mean() * 100, rb.mean() * 100, (ret.mean() - rb.mean()) * 100), flush=True)
+    out["bench"] = {"sig": round(float(ret.mean() * 100), 2), "rand": round(float(rb.mean() * 100), 2), "rand_win": round(float((rb > 0).mean() * 100), 1)}
+    ys = []
+    for y in np.unique(yrs_all[si]):
+        a, b = ret[yrs_all[si] == y], rb[yrs_all[sb] == y]
+        if len(a) >= 30 and len(b) >= 30:
+            ys.append([int(y), round(float(a.mean() * 100), 2), round(float(b.mean() * 100), 2)])
+            print("     %d：創新高 %+.2f%%｜隨機 %+.2f%%｜差距 %+.2f%%" % (y, a.mean() * 100, b.mean() * 100, (a.mean() - b.mean()) * 100), flush=True)
+    out["bench_years"] = ys
+    out["beat_years"] = [sum(1 for y in ys if y[1] > y[2]), len(ys)]
+    # 2. 逐年挑參數（不偷看當年）
+    combos = [(h, k, t) for h in (20, 40, 60) for k in (2.0, 3.0) for t in (0, 3.0, 4.0)]
+    res = {c: sim(PJ, c[1], c[2], c[0]) for c in combos}
+    wf_r, wf_days = [], []
+    for Y in range(int(dates[0][:4]) + 3, int(dates[-1][:4]) + 1):
+        cut = np.searchsorted(dates, f"{Y}-01-01") - MAXH        # 只用當年以前、而且已經出場的交易
+        best, bk = None, None
+        for c, (r, s_) in res.items():
+            m = s_ < cut
+            if m.sum() < 200:
+                continue
+            key = r[m].mean() / c[0]
+            if best is None or key > best:
+                best, bk = key, c
+        if bk is None:
+            continue
+        r, s_ = res[bk]
+        m = yrs_all[s_] == Y
+        if not m.sum():
+            continue
+        wf_r.append(r[m]); wf_days.append(s_[m])
+        print(f"  驗證2 逐年挑參數｜{Y}：用之前資料選到 抱{bk[0]}天 停損{bk[1]}ATR 移動{bk[2] or '無'} → 當年 {m.sum()} 筆 勝率 {(r[m] > 0).mean() * 100:.1f}% 平均 {r[m].mean() * 100:+.2f}%", flush=True)
+    if wf_r:
+        w = np.concatenate(wf_r)
+        out["wf"] = {"n": int(len(w)), "win": round(float((w > 0).mean() * 100), 1), "avg": round(float(w.mean() * 100), 2)}
+        print(f"  驗證2 合計：{out['wf']}", flush=True)
+    # 3. 抽樣可信範圍（以月為單位重抽，因為同一段時間的交易會一起漲跌）
+    def boot(r, s_, r2=None, s2=None):
+        ms = np.unique(mon_all[s_])
+        g = {m: r[mon_all[s_] == m] for m in ms}
+        g2 = {m: r2[mon_all[s2] == m] for m in ms} if r2 is not None else None
+        vals = []
+        for _ in range(1000):
+            pk = rng.choice(ms, size=len(ms), replace=True)
+            a = np.concatenate([g[m] for m in pk])
+            v = a.mean()
+            if g2 is not None:
+                b = [g2[m] for m in pk if len(g2[m])]
+                v -= np.concatenate(b).mean() if b else 0
+            vals.append(v * 100)
+        return [round(float(np.percentile(vals, q)), 2) for q in (2.5, 50, 97.5)], round(float((np.array(vals) > 0).mean() * 100), 1)
+    ci, p1 = boot(ret, si)
+    ci2, p2 = boot(ret, si, rb, sb)
+    out["ci"], out["p_pos"], out["ci_excess"], out["p_excess"] = ci, p1, ci2, p2
+    print(f"  驗證3 抽樣｜平均每筆 95% 可信範圍 {ci[0]:+.2f}%～{ci[2]:+.2f}%（大於 0 的機率 {p1}%）｜贏過隨機的幅度 {ci2[0]:+.2f}%～{ci2[2]:+.2f}%（贏的機率 {p2}%）", flush=True)
+    # 4. 程式一致性：每日名單用的逐檔算法 vs 回測用的矩陣算法（最近 250 個交易日）
+    vec = set()
+    jf = sig["Jf"].values
+    cols = list(C.columns)
+    for i in range(N - 250, N):
+        for j in np.flatnonzero(jf[i]):
+            vec.add((dates[i], cols[j]))
+    py = set()
+    d0 = dates[N - 250]
+    for c in cols:
+        rs = series[c]
+        Cc = [r[6] for r in rs]; Hc = [r[4] for r in rs]; Vc = [r[7] for r in rs]
+        n = len(Cc)
+        k0 = next((k for k, r in enumerate(rs) if r[0] >= d0), n)
+        nh = {}
+        for k in range(max(251, k0 - 21), n):
+            nh[k] = Cc[k] >= max(Hc[k - 250:k])
+        for k in range(max(271, k0), n):
+            if not nh.get(k) or any(nh.get(j) for j in range(k - 20, k)):
+                continue
+            if (Cc[k] / Cc[k - 1] - 1) * 100 >= 9.5 or Cc[k] * sum(Vc[k - 19:k + 1]) / 20 / 1e5 < LIQ:
+                continue
+            if any(abs(Cc[i] / Cc[i - 1] - 1) > 0.11 for i in range(k - 59, k + 1)):
+                continue
+            py.add((rs[k][0], c))
+    both = len(vec & py)
+    out["consist"] = {"vec": len(vec), "py": len(py), "both": both}
+    print(f"  驗證4 一致性｜近 250 日：回測算法 {len(vec)} 筆、每日名單算法 {len(py)} 筆、兩邊相同 {both} 筆（{both / max(len(vec | py), 1) * 100:.1f}%）", flush=True)
+    # 5. 觀察名單：離一年新高 3% 內、近 20 天沒創新高 → 之後突破的機率；提前買 vs 等突破
+    hi250 = Hh.rolling(250, min_periods=200).max().shift(1)
+    nh = (C >= hi250)
+    recent_nh = nh.shift(1).rolling(20).max().fillna(0) > 0
+    dist = (hi250 / C - 1) * 100
+    near = (dist > 0) & (dist <= 3) & ~recent_nh & (C * V.rolling(20).mean() / 1e5 >= LIQ) & atr.notna()
+    fut = lambda k: nh[::-1].rolling(k, min_periods=1).max()[::-1].shift(-1).fillna(0) > 0
+    nm = near.values
+    for k in (5, 10, 20):
+        print(f"  驗證5 觀察名單｜{k} 天內突破的機率 {fut(k).values[nm].mean() * 100:.1f}%", flush=True)
+    out["near_p"] = {k: round(float(fut(k).values[nm].mean() * 100), 1) for k in (5, 10, 20)}
+    ni, nj = np.where(nm)
+    pk = rng.choice(len(ni), size=min(len(ni), 100000), replace=False)
+    rn, sn = sim(prep(ni[pk], nj[pk]), 3.0, 0, 60)
+    out["near_buy"] = {"n": int(len(rn)), "win": round(float((rn > 0).mean() * 100), 1), "avg": round(float(rn.mean() * 100), 2)}
+    print(f"  驗證5 提前買（還沒突破就買）：{out['near_buy']}｜等突破再買：平均 {ret.mean() * 100:+.2f}%", flush=True)
+    for lo, hi in ((0, 1), (1, 2), (2, 3)):
+        m = (dist.values[ni[pk], nj[pk]] > lo) & (dist.values[ni[pk], nj[pk]] <= hi)
+        okm = ~np.isnan(Ov[np.minimum(ni[pk] + 1, N - 1), nj[pk]])
     return out
 
 
