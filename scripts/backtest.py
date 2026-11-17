@@ -10,7 +10,7 @@ import json, os, time, datetime as dt
 
 TW = dt.timezone(dt.timedelta(hours=8))
 H = 20  # 看之後幾個交易日
-VER = 14  # 回測程式版本；改版時自動重跑
+VER = 15  # 回測程式版本；改版時自動重跑
 
 
 def frames(series, dates):
@@ -306,6 +306,20 @@ COST = 0.00585   # 買賣手續費 0.1425%×2 ＋ 證交稅 0.3%
 LIQ = 0.2        # 日均成交金額至少 0.2 億（2,000 萬）才推薦
 TIERS = (("s", 0, 3), ("b", 3, 6), ("w", 6, 12))   # 依當天排名：前 3%、3～6%、6～12%
 STATES = (("green", 0, 15), ("yellow", 15, 25), ("red", 25, 40), ("black", 40, 101))   # 大盤燈號：全市場站上季線的比例
+GO = ("green2", "green", "rebound", "yellow")       # 可以進場的燈號
+LIGHTS = ("green2", "green", "rebound", "yellow", "red", "black")
+
+
+def light_state(b, mn10):
+    """大盤燈號。b＝今天全市場站上季線的比例；mn10＝近 10 個交易日的最低值
+    green2 綠燈・止跌回升（最佳）｜green 綠燈・仍在探底｜rebound 反彈初期｜yellow 黃燈｜red 觀望｜black 不買"""
+    if b < 15:
+        return "green2" if b >= mn10 + 2 else "green"
+    if mn10 < 15 and b >= mn10 + 3 and b < 30:
+        return "rebound"
+    if b < 25:
+        return "yellow"
+    return "red" if b < 40 else "black"
 HOLD = 20
 
 
@@ -804,7 +818,9 @@ def plan_backtest(O, Hh, L, C, V, si, sj, ss, dates, breadth):
         print(f"   {y}（綠燈＋黃燈）：{st['n']} 筆、{st['ndays']} 天｜勝率 {st['win']}% 平均 {st['avg']}%", flush=True)
     print(f"交易計畫回測：停損 {ks} ATR、目標 {kt or '不設'} ATR", flush=True)
     try:
-        out["valid"] = plan_validate(sim, summ, dict(si=si, sj=sj, rank=rank, br=br, Ow=Ow, Lw=Lw, px=px, Cv=Cv, breadth=breadth, dates=dates, ks=ks, kt=kt, inlist=inlist))
+        v = plan_validate(sim, summ, dict(si=si, sj=sj, rank=rank, br=br, Ow=Ow, Lw=Lw, px=px, Cv=Cv, breadth=breadth, dates=dates, ks=ks, kt=kt, inlist=inlist))
+        out["states"] = v.pop("states")
+        out["valid"] = v
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -881,6 +897,18 @@ def plan_validate(sim, summ, X):
         return o
 
     out = {}
+    # 0. 各燈號的成績（名單內）
+    code = np.array([light_state(b[i], mn10[i]) for i in range(N)])
+    out["states"] = []
+    for name in LIGHTS:
+        dm = code == name
+        o = st(dm[S_si] & S_in)
+        dd_ = np.flatnonzero(dm)
+        o["ndays_all"] = int(dm.sum())
+        o["nepi"] = int(1 + (np.diff(dd_) > 10).sum()) if len(dd_) else 0
+        out["states"].append([name, None, None, o])
+        if o["n"]:
+            print("  強化0 燈號｜%-8s %4d 天 %6d 筆｜勝率 %.1f%% 平均 %+.2f%%（賺 %+.1f%%／賠 %+.1f%%）最多套牢 %.1f%%" % (name, o["ndays"], o["n"], o["win"], o["avg"], o["aw"], o["al"], o["mae"]), flush=True)
     # 1. 進場時機
     conds = {
         "綠燈（<15%）": b < 15, "黃燈（15～25%）": (b >= 15) & (b < 25), "<10%": b < 10, "<20%": b < 20,
@@ -926,7 +954,9 @@ def plan_validate(sim, summ, X):
         idx = np.flatnonzero(mask)
         return [(int(S_si[i] + 1), int(S_si[i] + days[i]), float(ret[i]), int(S_sj[i]), float(S_rank[i]), float(entry[i])) for i in idx]
     out["port"] = {}
-    for name, m in (("綠燈＋黃燈", (S_br < 25) & S_in), ("只做綠燈", (S_br < 15) & S_in), ("止跌回升A", conds["止跌回升A：10日內曾<15、回升≥3、仍<30"][S_si] & S_in),
+    isin = lambda names: np.isin(code, names)[S_si] & S_in
+    for name, m in (("rec", isin(["green2", "green", "rebound"])), ("agg", isin(list(GO))), ("best", isin(["green2", "rebound"])), ("all", S_in),
+                    ("綠燈＋黃燈", (S_br < 25) & S_in), ("只做綠燈", (S_br < 15) & S_in), ("止跌回升A", conds["止跌回升A：10日內曾<15、回升≥3、仍<30"][S_si] & S_in),
                     ("綠燈＋止跌回升A", (conds["綠燈（<15%）"] | conds["止跌回升A：10日內曾<15、回升≥3、仍<30"])[S_si] & S_in), ("每天都做（不看燈號）", S_in)):
         for M in (10, 5):
             r = portfolio_sim(trades(m), Cv, dates, M)
@@ -1073,11 +1103,12 @@ def score_today(series, dates, fund=None, ind=None, top=150, warn=None):
             r["stop"] = round(r["px"] - ks * r["atr"], 2)
             r["tgt"] = round(r["px"] + kt * r["atr"], 2) if kt else None
             r["nc"] = round(r["px"] + r["atr"], 2)       # 不追價：隔天開盤高於這個價就不買
-    state = next((n_ for n_, lo, hi in STATES if lo <= breadth < hi), "black")
+    mn10 = min([x[1] for x in bh[-10:]] + [breadth]) if bh else breadth
+    state = light_state(breadth, mn10)
     recs = [r for r in rows if r.get("tier")]
-    track = update_track(series, last, recs if state in ("green", "yellow") else [])   # 紅燈的日子不算推薦
+    track = update_track(series, last, recs if state in GO else [])   # 紅燈的日子不算推薦
     keep = {r["c"] for r in rows[:top]} | {r["c"] for r in recs}
-    res = {"date": last, "plan": {k: plan.get(k) for k in ("ks", "kt", "hold", "cost", "liq", "tiers", "years", "states")} if plan else None, "track": track, "state": state, "model_test": m.get("test"), "dec": m.get("test_dec"), "base": m.get("test_base"),
+    res = {"date": last, "plan": {k: plan.get(k) for k in ("ks", "kt", "hold", "cost", "liq", "tiers", "years", "states", "valid")} if plan else None, "track": track, "state": state, "mn10": round(mn10, 1), "model_test": m.get("test"), "dec": m.get("test_dec"), "base": m.get("test_base"),
            "top5": m.get("test_top5"), "top10": m.get("test_top"), "wf": m.get("wf"), "breadth": round(breadth, 1), "bh": bh,
            "items": [r for r in rows if r["c"] in keep], "n": len(rows), "nliq": len(liquid)}
     os.makedirs("out", exist_ok=True)
