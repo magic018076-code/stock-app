@@ -220,6 +220,8 @@ def fetch_insti_day(d):
                     out[c] = [round(sum(n(r[i]) or 0 for i in fi) / 1000), round((n(r[ti]) or 0) / 1000), round((n(r[di]) or 0) / 1000) if di is not None and len(r) > di else 0]
     j = getj(f"https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date={d.replace('-', '/')}&response=json", 2, 30)
     time.sleep(SLEEP)
+    if j is None and out:
+        raise RuntimeError("櫃買中心沒有回應")   # 只抓到上市的不要存，下次重抓
     t = (j or {}).get("tables") or [{}]
     for r in t[0].get("data", []) if t else []:
         c = str(r[0]).strip()
@@ -234,6 +236,13 @@ def fetch_insti_day(d):
 
 def update_insti(dates):
     ins = load(INSTI, {})
+    if not os.path.exists("cache/insti_fix1"):
+        # 以前櫃買中心沒回應時只存了上市的資料，清掉讓它重抓一次
+        bad = [d for d, v in ins.items() if v and len(v) < 1100]
+        for d in bad:
+            del ins[d]
+        open("cache/insti_fix1", "w").write(str(len(bad)))
+        print(f"  法人：清掉 {len(bad)} 天只有上市的資料，重新抓", flush=True)
     want = [d for d in dates if d >= INSTI_FROM]   # 從證交所有資料的第一天起全部保留
     today = dt.datetime.now(TW).date()
     t0, k, left = time.time(), 0, 0
