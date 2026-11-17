@@ -40,6 +40,9 @@ jobs:
         run: pip install --quiet pandas numpy
 
       - name: 補資料並計算
+        env:
+          # 改程式後觸發的那一輪：法人只補 10 分鐘，讓新結果盡快上線；其他輪照常
+          INSTI_SECS: ${{ github.event_name == 'push' && '600' || '' }}
         run: python3 scripts/build_lowbase.py
 
       - name: 儲存歷史行情快取

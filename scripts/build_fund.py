@@ -238,7 +238,7 @@ def update_insti(dates):
     today = dt.datetime.now(TW).date()
     t0, k, left = time.time(), 0, 0
     # 股價還在補的時候法人最多跑 45 分鐘；股價補完後每輪可以跑 3 小時，加快補齊
-    budget = int(os.environ.get("INSTI_SECS", "2700" if os.path.exists("cache/more.flag") else "10800"))
+    budget = int(os.environ.get("INSTI_SECS") or ("2700" if os.path.exists("cache/more.flag") else "10800"))
     for d in want[::-1]:  # 新的日期先抓
         if d in ins:
             continue
