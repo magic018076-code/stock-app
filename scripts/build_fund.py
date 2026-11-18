@@ -222,8 +222,10 @@ def fetch_insti_day(d):
     time.sleep(SLEEP)
     if j is None and out:
         raise RuntimeError("櫃買中心沒有回應")   # 只抓到上市的不要存，下次重抓
-    t = (j or {}).get("tables") or [{}]
-    for r in t[0].get("data", []) if t else []:
+    rows_ = []
+    for t in (j or {}).get("tables") or []:     # 2018 年以前資料在第二個表格，全部表格都看
+        rows_ += (t or {}).get("data") or []
+    for r in rows_:
         c = str(r[0]).strip()
         if not re.fullmatch(r"\d{4}", c):
             continue
@@ -236,12 +238,12 @@ def fetch_insti_day(d):
 
 def update_insti(dates):
     ins = load(INSTI, {})
-    if not os.path.exists("cache/insti_fix1"):
-        # 以前櫃買中心沒回應時只存了上市的資料，清掉讓它重抓一次
+    if not os.path.exists("cache/insti_fix2"):
+        # 以前櫃買中心沒回應、或 2018 年以前的格式沒讀到時，只存了上市的資料，清掉讓它重抓一次
         bad = [d for d, v in ins.items() if v and len(v) < 1100]
         for d in bad:
             del ins[d]
-        open("cache/insti_fix1", "w").write(str(len(bad)))
+        open("cache/insti_fix2", "w").write(str(len(bad)))
         print(f"  法人：清掉 {len(bad)} 天只有上市的資料，重新抓", flush=True)
     want = [d for d in dates if d >= INSTI_FROM]   # 從證交所有資料的第一天起全部保留
     today = dt.datetime.now(TW).date()
