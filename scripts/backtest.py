@@ -1036,9 +1036,19 @@ def maybe_run(series, dates, force=False):
             old = None
     stale = force or not old or old.get("ver") != VER or (dt.date.fromisoformat(dates[-1]) - dt.date.fromisoformat(old["asof"])).days >= 7 \
         or len(dates) - old.get("nd", 0) > 100          # 歷史資料補長了就重跑
+    ni = 0
+    try:
+        import gzip
+        with gzip.open("cache/insti.json.gz", "rt", encoding="utf-8") as f:
+            ni = sum(1 for v in json.load(f).values() if v)
+    except Exception:
+        pass
+    if old and ni - old.get("ni", 0) > 100:            # 法人資料補多了也重跑，讓模型學到外資、投信
+        stale = True
     if stale:
         try:
             old = run(series, dates)
+            old["ni"] = ni
             os.makedirs("cache", exist_ok=True)
             json.dump(old, open(p, "w", encoding="utf-8"), ensure_ascii=False)
         except Exception as e:
