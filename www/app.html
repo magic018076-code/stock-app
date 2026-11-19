@@ -288,7 +288,7 @@ function openUrl(u){try{if(window.Capacitor&&Capacitor.Plugins.Browser){Capacito
 const IND={"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活","80":"管理股票","91":"存託憑證"};
 const indName=v=>{v=String(v??"").trim();if(!v)return"";return IND[v.padStart(2,"0")]||v};
 
-const UI_V=45; // 介面版本，要和 ota.json 一致
+const UI_V=46; // 介面版本，要和 ota.json 一致
 /* ===== 狀態 ===== */
 let S=Object.assign({swap:false,auto:true,int:10,fs:"m"},store.get("settings",{}));
 if(S.int===20&&!S.intSet)S.int=10; // 舊預設 20 秒改成 10 秒（使用者自己選過的不動）
@@ -626,7 +626,7 @@ function sugAI(x){
   const r=rt[x.c],lv=r&&!r.stale&&isFinite(r.z),px=lv?r.z:x.px,stop=rTick(x.stop),tgt=x.tgt?rTick(x.tgt,1):null,nc=rTick(x.nc);
   // 盤中狀態：跌破停損價就取消；高於不追價就不追
   const st=limDown(x)?["今日跌停，不買","#25d925",3]:lv&&px<=stop?["已跌破停損價，取消","#25d925",3]:lv&&px>nc?["已高於不追價，不追","#999",2]:lv?["價位可進場","#ffb020",0]:["明日開盤進場","#7fb3ff",1];
-  const risk=x.px-stop,cap=(S.cap||100)*1e4,lots=risk>0?Math.floor(cap*0.01/(risk*1000)):0,sh=risk>0?Math.floor(cap*0.01/risk):0;
+  const risk=x.px-stop,cap=(S.cap||100)*1e4,rk=riskPct(),lots=risk>0?Math.floor(cap*rk/(risk*1000)):0,sh=risk>0?Math.floor(cap*rk/risk):0;
   return {px,stop,tgt,nc,st,lots,sh,cost:lots*x.px*1000,up:tgt?(tgt/x.px-1)*100:null,dn:(stop/x.px-1)*100,rr:tgt?(tgt-x.px)/risk:null,atrp:x.atr/x.px*100};
 }
 function sugList(){
@@ -640,9 +640,17 @@ function sugCard([x,v]){
   return `<div class="lc sg" data-code="${x.c}" style="${off?"opacity:.55":""}"><div class="r1"><span class="scb" style="background:${aiCol(x.ai)}">${x.ai}</span><b>${esc(x.n)}</b><span class="cd">${x.c}${ind?"・"+esc(ind):""}</span><span class="px ${k}">${d(v.px)}</span><span class="pc ${k}">${ch>0?"+":""}${F(ch,2)}%</span></div>
    <div class="sgs"><span class="aib" style="border-color:${v.st[1]};color:${v.st[1]};margin:0">${v.st[0]}</span><span>開盤買進，高於 <b>${d(v.nc)}</b> 不追</span></div>
    <div class="sgg" style="grid-template-columns:1fr 1fr 1fr 1fr"><div><span>參考價</span><b>${d(x.px)}</b></div><div><span>停損 ${F(v.dn,0)}%</span><b class="down">${d(v.stop)}</b></div><div><span>${v.tgt?"目標 +"+F(v.up,0)+"%":"目標"}</span><b class="up">${v.tgt?d(v.tgt):"抱滿20天"}</b></div><div><span>最多抱</span><b>${aiD.plan&&aiD.plan.hold||20} 天</b></div></div>
-   <div class="btl">💰 ${S.cap||100} 萬資金：買 <b style="color:#fff">${v.lots>0?v.lots+" 張":"零股 "+fmtC(v.sh,0)+" 股"}</b>${v.lots>0?"（約 "+fmtC(v.cost/1e4,0)+" 萬）":""}，停損時約賠 ${fmtC((S.cap||100)*100,0)} 元</div>
+   <div class="btl">💰 ${S.cap||100} 萬資金：買 <b style="color:#fff">${v.lots>0?v.lots+" 張":"零股 "+fmtC(v.sh,0)+" 股"}</b>${v.lots>0?"（約 "+fmtC(v.cost/1e4,0)+" 萬）":""}，停損時約賠 ${fmtC((S.cap||100)*1e4*riskPct(),0)} 元</div>
    ${topTags((x.pts||[]).filter(p=>p[1]>0&&p[0]!=="大盤站上季線比例").map(p=>[(PT_FMT[p[0]]||(()=>p[0]))(p[2]),F(p[1],1)]))}</div>`;
 }
+// 大盤急跌警示：等權指數的年線下彎超過 1%（20 年資料：這時綠燈進場平均幾乎不賺，例如 2008、2011、2015），張數減半
+const crashOn=()=>!!(aiD&&aiD.crash&&aiD.crash.on);
+const riskPct=()=>crashOn()?0.005:0.01;
+function crashCmp(){const V=aiD&&aiD.plan&&aiD.plan.valid&&aiD.plan.valid.crash;const g=V&&V.find(x=>x[0]===(aiD.state||"green2"))||V&&V[0];
+  return g&&g[1].n&&g[2].n?`20 年資料：同樣是「${(LIGHT[g[0]]||[""])[0]}」，有警示時勝率 ${F(g[1].win,0)}%、平均每筆 ${pct(g[1].avg,1)}，沒警示時勝率 ${F(g[2].win,0)}%、平均 ${pct(g[2].avg,1)}（警示多出現在 2008、2011、2012、2015 年）。還是賺的，但差很多，`:"20 年資料顯示，這種時候亮綠燈進場的成績明顯變差（2008、2011、2012、2015 年）。"}
+function crashBox(){if(!aiD||!aiD.crash||aiD.crash.ys==null)return "";const c=aiD.crash;
+  return c.on?`<div class="light" style="border-color:#ff5a4a"><div class="lt"><b style="color:#ff5a4a">⚠ 大盤急跌警示：建議張數減半</b><span>年線 20 日 ${pct(c.ys,1)}</span></div><div class="ld">全市場平均的年線（250 日均線）正在往下彎，代表可能是「跌了還會再跌」的空頭。${crashCmp()}所以下面的張數已經自動減半（每筆最多賠 0.5%），請更嚴格執行停損。</div></div>`
+   :`<div class="foot" style="padding:6px 12px;border-bottom:1px solid var(--line)">✅ 大盤急跌警示：<b>無</b>（全市場年線 20 日變化 ${pct(c.ys,1)}，距一年高點 ${pct(c.dd,1)}）。年線往下彎超過 1% 時會自動把建議張數減半。</div>`}
 // 今天跌停（盤中即時跌幅 ≥9.5%，或最近收盤跌停）：賣壓未止，不建議買進
 function limDown(x){const r=rt[x.c],lv=r&&!r.stale&&isFinite(r.pct);return lv?(r.pct<=-9.5||(isFinite(r.w)&&r.w>0&&r.z<=r.w)):x.ch<=-9.5}
 const LIGHT={green2:["🟢 綠燈・止跌回升","#25d925","大盤嚴重超跌，而且已經從低點回升。歷史上這是買低檔股最好的時機，可以積極進場。"],green:["🟢 綠燈・仍在探底","#8fd94a","大盤嚴重超跌，但還在破底。歷史上也是賺的，不過買了常會再跌一段，請分 2～3 批、不要一次買滿。"],rebound:["🟢 反彈初期・仍可進場","#4fd9a0","大盤剛從嚴重超跌回升，反彈還在初期。可以進場，但不要追高。"],yellow:["🟡 黃燈・小量試單","#ffb020","大盤偏弱但還沒到嚴重超跌。勝率只比一半多一點，最多小量試單，等綠燈再加碼。"],red:["🔴 紅燈・觀望","#ff5a4a","大盤不上不下，買低檔股歷史上沒有優勢。建議等待。"],black:["⚫ 不買","#999","大盤強勢時，低檔股通常是弱勢股，歷史上平均是賠的。不建議買。"]};
@@ -661,7 +669,7 @@ function renderSuggest(){
   const T=((P.states||[]).find(x=>x[0]===stn)||[])[3]||{};
   // 大盤燈號：決定今天該不該進場
   h+=`<div class="light" style="border-color:${SI[1]}"><div class="lt"><i style="background:${SI[1]}"></i><b style="color:${SI[1]}">${SI[0]}</b><span>大盤站上季線 ${F(aiD.breadth,0)}%</span></div>
-   <div class="ld">${SI[2]}${T.n?`<br>歷史上這種燈號進場（${T.ndays} 個交易日、${T.nepi} 個波段）：<b>勝率 ${F(T.win,0)}%、平均每筆 ${pct(T.avg,1)}</b>`:""}</div>${bhSpark()}</div>`;
+   <div class="ld">${SI[2]}${T.n?`<br>歷史上這種燈號進場（${T.ndays} 個交易日、${T.nepi} 個波段）：<b>勝率 ${F(T.win,0)}%、平均每筆 ${pct(T.avg,1)}</b>`:""}</div>${bhSpark()}</div>`+crashBox();
   if(P.states){
     h+=`<div class="pstat"><div><span>歷史勝率</span><b>${F(T.win,0)}%</b></div><div><span>平均每筆</span><b class="${cls(T.avg)}">${pct(T.avg,1)}</b></div><div><span>最多套牢</span><b class="down">${pct(T.mae,1)}</b></div><div><span>賠時平均</span><b class="down">${pct(T.al,1)}</b></div></div>`;
     h+=`<details class="btbox"><summary>📊 燈號和計畫怎麼來的？準不準？</summary><div style="padding-top:6px;line-height:1.7">
@@ -684,7 +692,7 @@ function renderSuggest(){
   h+=`<details class="btbox"><summary>📋 推薦追蹤：${ts.n?`已結束 ${ts.n} 筆，勝率 ${F(ts.win,0)}%，平均 ${pct(ts.avg,1)}`:"開始記錄中"}${ts.open?`・持有中 ${ts.open} 筆`:""}</summary>
    <div class="foot" style="padding:6px 0">從 ${esc(ts.since||aiD.date)} 起，每天的「強烈建議」和「建議買進」都會記下來，之後用實際走勢對答案（照同一套計畫，已扣成本）。</div>
    ${(tk.list||[]).length?`<table><tr><th>推薦日・股票</th><th>結果</th><th>報酬</th></tr>${tk.list.slice(0,60).map(e=>`<tr data-code="${e.c}"><td>${e.d.slice(5)} ${esc(e.n)}${e.t==="s"?" ★":""}</td><td class="${ST_COL[e.st]||""}">${e.st}${e.days?" "+e.days+"天":""}</td><td class="${cls(e.ret)}">${typeof e.ret==="number"?pct(e.ret,1):"—"}</td></tr>`).join("")}</table>`:""}</details>`;
-  h+=`<div class="capr"><span>我的資金</span>${[30,50,100,200,500].map(c=>`<button data-cap="${c}" class="${(S.cap||100)===c?"on":""}">${c}萬</button>`).join("")}<span class="mute">每筆最多賠 1%</span></div>`;
+  h+=`<div class="capr"><span>我的資金</span>${[30,50,100,200,500].map(c=>`<button data-cap="${c}" class="${(S.cap||100)===c?"on":""}">${c}萬</button>`).join("")}<span class="mute">每筆最多賠 ${crashOn()?"0.5%（急跌警示減半）":"1%"}</span></div>`;
   h+=`<div class="sec"><span>${SGV==="s"?"今日排名前 3%":SGV==="b"?"排名 3～6%":"排名 6～12%"}・${cur.length} 檔</span><span>依 ${esc(aiD.date.slice(5))} 收盤・大盤站上季線 ${F(aiD.breadth,0)}%</span></div>`;
   if(!go)h+=`<div class="foot" style="color:${SI[1]};padding:8px 12px;border-bottom:1px solid var(--line)"><b>${SI[0]}：今天不建議進場。</b>下面的名單只是「如果要買，模型排名最高的股票」，請等綠燈或黃燈再動作。</div>`;
   h+=`<div style="${go?"":"opacity:.5"}">`+(cur.slice(0,80).map(sugCard).join("")||`<div class="empty">今天這一級沒有符合的股票<br><br>可以切換其他分級看看</div>`)+`</div>`;
@@ -703,8 +711,8 @@ function brkHead(x,badge,col){
   const r=rt[x.c],lv=r&&!r.stale&&isFinite(r.z),px=lv?r.z:(x.now||x.px),ch=lv&&isFinite(r.pct)?r.pct:(x.now?NaN:x.ch),k=cls(ch),ind=(x.ic&&IND[x.ic])||"";
   return [`<div class="r1">${badge?`<span class="scb" style="background:${col}">${badge}</span>`:""}<b>${esc(x.n)}</b><span class="cd">${x.c}${x.m==="O"?" 櫃":""}${ind?"・"+esc(ind):""}</span>${x.warn?`<span class="aib" style="border-color:#ff5a4a;color:#ff5a4a">${esc(x.warn)}</span>`:""}<span class="px ${k}">${F(px,pxD(px))}</span><span class="pc ${k}">${isFinite(ch)?(ch>0?"+":"")+F(ch,2)+"%":""}</span></div>`,px,lv];
 }
-function brkSize(x,stop){const risk=x.px-stop,cap=(S.cap||100)*1e4,lots=risk>0?Math.floor(cap*0.01/(risk*1000)):0,sh=risk>0?Math.floor(cap*0.01/risk):0;
-  return `<div class="btl">💰 ${S.cap||100} 萬資金：買 <b style="color:#fff">${lots>0?lots+" 張（約 "+fmtC(lots*x.px/10,0)+" 萬）":"零股 "+fmtC(sh,0)+" 股"}</b>，停損時約賠 ${fmtC((S.cap||100)*100,0)} 元</div>`}
+function brkSize(x,stop){const risk=x.px-stop,cap=(S.cap||100)*1e4,rk=riskPct(),lots=risk>0?Math.floor(cap*rk/(risk*1000)):0,sh=risk>0?Math.floor(cap*rk/risk):0;
+  return `<div class="btl">💰 ${S.cap||100} 萬資金：買 <b style="color:#fff">${lots>0?lots+" 張（約 "+fmtC(lots*x.px/10,0)+" 萬）":"零股 "+fmtC(sh,0)+" 股"}</b>，停損時約賠 ${fmtC((S.cap||100)*1e4*riskPct(),0)} 元</div>`}
 function brkTags(x){const t=[];if(x.vr>=1.5)t.push(["量 "+F(x.vr,1)+" 倍",""]);if(x.rvy>=20)t.push(["營收年增 "+yoyT(x.rvy),""]);if(x.ts>=3)t.push(["投信連買 "+x.ts+" 天",""]);if(x.fs>=5)t.push(["外資連買 "+x.fs+" 天",""]);if(x.pe>0)t.push(["本益比 "+F(x.pe,1),""]);
   return t.length?`<div class="tags">${t.map(z=>`<span class="tg">${z[0]}</span>`).join("")}</div>`:""}
 function brkCardToday(x){
@@ -749,7 +757,7 @@ function renderRise(){
      ${P.states?`<table><tr><th>進場時大盤（站上季線比例）</th><th>勝率</th><th>平均每筆</th></tr>${P.states.filter(x=>x[2].n>=50).map(x=>`<tr><td>${x[0]}～${Math.min(x[1],100)}%</td><td>${F(x[2].win,0)}%</td><td class="${cls(x[2].avg)}">${pct(x[2].avg,1)}</td></tr>`).join("")}</table>`:""}
      <div class="foot" style="padding:6px 0 0"><b>要有心理準備</b>：這個方法<b>大約 3 筆裡有 2 筆會停損</b>（每筆賠約 ${F(Math.abs(A.al),0)}%），靠的是少數幾筆大賺（平均 +${F(A.aw,0)}%）。所以每筆金額要小、<b>停損一定要執行、賺的要抱住不要太早賣</b>。優勢不大，2018、2022 年是小賠的。過去表現不代表未來。</div></details>`;
   }
-  h+=`<div class="capr"><span>我的資金</span>${[30,50,100,200,500].map(c=>`<button data-cap="${c}" class="${(S.cap||100)===c?"on":""}">${c}萬</button>`).join("")}<span class="mute">每筆最多賠 1%</span></div>`;
+  h+=`<div class="capr"><span>我的資金</span>${[30,50,100,200,500].map(c=>`<button data-cap="${c}" class="${(S.cap||100)===c?"on":""}">${c}萬</button>`).join("")}<span class="mute">每筆最多賠 ${crashOn()?"0.5%（急跌警示減半）":"1%"}</span></div>`;
   const cur=L[RSV]||[];
   h+=`<div class="sec"><span>${RSV==="today"?"今天收盤剛創一年新高":RSV==="near"?"離一年新高 3% 以內（觀察）":`近 15 日突破${rs.n?`：${rs.n} 筆，目前賺錢 ${F(rs.win,0)}%，平均 ${pct(rs.avg,1)}`:""}`}・${cur.length} 檔</span><span>${esc(brkD.date.slice(5))} 收盤</span></div>`;
   h+=cur.slice(0,100).map(RSV==="today"?brkCardToday:RSV==="near"?brkCardNear:brkCardRecent).join("")||`<div class="empty">${RSV==="today"?"今天沒有股票創一年新高<br><br>可以看「即將突破」的觀察名單":"目前沒有符合的股票"}</div>`;
@@ -1024,9 +1032,9 @@ const GI={
  status:`<circle cx="32" cy="32" r="22" fill="#1f5fc7"/><circle cx="32" cy="32" r="18" fill="#f8f3e3"/><path d="M32 18v14h10" fill="none" stroke="#e8322a" stroke-width="3.5" stroke-linecap="round"/><circle cx="32" cy="32" r="2.5" fill="#333"/>`,
  upd:`<path d="M26 8h12v20h9L32 44 17 28h9z" fill="url(#gB)"/><path d="M10 44l22 12 22-12-8-4-14 8-14-8z" fill="url(#gG)" stroke="#9a6b00" stroke-width="1.2"/>`
 };
-GI.rise=GI.pick;GI.suggest=`<circle cx="32" cy="32" r="22" fill="#1d2a3a"/><circle cx="32" cy="32" r="15" fill="none" stroke="#ffb020" stroke-width="4"/><circle cx="32" cy="32" r="7" fill="#e8322a"/><path d="M46 18L34 30" stroke="#fff" stroke-width="3" stroke-linecap="round"/>`;
+GI.rise=GI.pick;GI.gran=`<rect x="6" y="8" width="52" height="48" rx="6" fill="#1d2a3a"/><path d="M10 40c8-2 12-8 22-8s14 4 22 2" fill="none" stroke="#ffb020" stroke-width="3"/><path d="M10 46l9-14 8 8 9-16 9 10 9-12" fill="none" stroke="#7fb3ff" stroke-width="2.5" stroke-linejoin="round"/><circle cx="27" cy="40" r="3.5" fill="#e8322a"/><circle cx="45" cy="28" r="3.5" fill="#25d925"/>`;GI.suggest=`<circle cx="32" cy="32" r="22" fill="#1d2a3a"/><circle cx="32" cy="32" r="15" fill="none" stroke="#ffb020" stroke-width="4"/><circle cx="32" cy="32" r="7" fill="#e8322a"/><path d="M46 18L34 30" stroke="#fff" stroke-width="3" stroke-linecap="round"/>`;
 const GDEF=`<defs><linearGradient id="gP" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fffaf0"/><stop offset="1" stop-color="#e7dcc0"/></linearGradient><linearGradient id="gG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe07a"/><stop offset="1" stop-color="#d49a12"/></linearGradient><linearGradient id="gB" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5aa8ff"/><stop offset="1" stop-color="#1546a8"/></linearGradient></defs>`;
-const TILES=[["watch","自選報價"],["rise","即將突破"],["suggest","建議買進"],["index","指數行情"],["ind","類股報價"],["fut","台指期貨"],["intl","國際金融"],["holds","庫存損益"],["alerts","價格提醒"],["news","財經新聞"],["mops","重大訊息"],["newlist","新上市櫃"],["otchist","上櫃家數"],["settings","設定"],["status","資料狀態"],["upd","檢查更新"]];
+const TILES=[["watch","自選報價"],["rise","即將突破"],["suggest","建議買進"],["gran","葛蘭碧"],["index","指數行情"],["ind","類股報價"],["fut","台指期貨"],["intl","國際金融"],["holds","庫存損益"],["alerts","價格提醒"],["news","財經新聞"],["mops","重大訊息"],["newlist","新上市櫃"],["otchist","上櫃家數"],["settings","設定"],["status","資料狀態"],["upd","檢查更新"]];
 function renderHome(){
   setTB("股市智多星",{right:icBtn("tbSearch","search")+icBtn("tbRef","ref")});
   const t=tseIdx(),o=idx.otc,dn=fut.day.find(x=>!x.spot&&/^TXF/.test(x.id));
@@ -1039,7 +1047,7 @@ function renderHome(){
   $("main").innerHTML=`<svg width="0" height="0" style="position:absolute">${GDEF}</svg>`+h;
 }
 function tileGo(k){
-  const ov=["ind","alerts","news","mops","newlist","otchist","settings","status"];
+  const ov=["gran","ind","alerts","news","mops","newlist","otchist","settings","status"];
   if(ov.includes(k)){openOv(k);return}
   if(k==="watch"){if(gSel==="h:"){gSel="g:0";store.set("gSel",gSel)}go("watch");return}
   if(k==="holds"){gSel="h:";store.set("gSel",gSel);go("watch");return}
@@ -1165,6 +1173,7 @@ let mopsMine=false,searchQ="";
 function renderOv(){
   const T=$("ovT"),B=$("ovBody");$("ovR").innerHTML="";
   if(ovKind==="stock")return renderStock();
+  if(ovKind==="gran"){T.innerHTML="葛蘭碧八大法則";B.innerHTML=granOvHTML();if(!granD)loadGran(false).then(()=>ovKind==="gran"&&renderOv());return}
   if(ovKind==="search"){
     const g=curGroup()||groups[0];T.innerHTML="加入自選";
     const s=searchQ.trim().toLowerCase(),all=new Set([...Object.keys(daily.rows||{}),...Object.keys(info.rows||{})]);
@@ -1297,7 +1306,45 @@ function fundHTML(c){
     h+=bars(1,"外資")+bars(2,"投信")+`<div class="foot" style="padding-top:0">近 ${rs.length} 個交易日每日買賣超：紅＝買超、綠＝賣超（${kd(rs[0][0]).slice(5)}～${kd(rs[rs.length-1][0]).slice(5)}）</div>`}
   return h;
 }
-function lbStockHTML(c){return "";} // 低檔選股功能已移除
+function lbStockHTML(c){return granHTML(c)} // 低檔選股已移除，這裡改放葛蘭碧訊號
+/* ===== 葛蘭碧八大法則（季線＝60 日均線）=====
+   定義和雲端 backtest.py 的 gran_masks／gran_last 相同；每一條都用 20 年資料驗證過（雲端 gran.json）。 */
+const GRAN=[[1,"買","突破季線","季線走平或翻揚，股價從季線下方（近 20 天至少 10 天在線下）突破站上季線"],[2,"買","假跌破","季線仍上揚，股價短暫跌破季線（近 20 天在線下不超過 5 天）又馬上站回"],[3,"買","回測季線有撐","季線上揚，股價回檔到季線附近（2% 內）沒有跌破，今天收紅轉強"],[4,"買","跌深反彈","股價在季線下方超過 15%（負乖離過大），今天收紅"],[5,"賣","跌破季線","季線走平或下彎，股價從季線上方（近 20 天至少 10 天在線上）跌破季線"],[6,"賣","假突破","季線仍下彎，股價短暫站上季線（近 20 天在線上不超過 5 天）又跌回"],[7,"賣","反彈遇壓","季線下彎，股價反彈到季線附近（2% 內）沒有站上，今天收黑轉弱"],[8,"賣","漲多拉回","股價在季線上方超過 20%（正乖離過大），今天收黑"]];
+let granD=null,GRN=store.get("grn",1);
+async function loadGran(force){granD=await cached("gran",4,async()=>{const j=await getJSON(LB_URL.replace("lowbase.json","gran.json")+"?t="+Math.floor(Date.now()/600000));if(!j.lists)throw new Error("bad");return j},force).catch(()=>granD)}
+function granLast(d){ // d：[[日期,開,高,低,收,量],...]
+  const n=d.length;if(n<90)return [];const C=d.map(b=>b[4]),H=d.map(b=>b[2]),L=d.map(b=>b[3]);
+  const ma=k=>{let t=0;for(let i=k-59;i<=k;i++)t+=C[i];return t/60},m60=ma(n-1),m1=ma(n-2),m5=ma(n-6),s=(m60/m5-1)*100,bel=k=>C[k]<ma(k);
+  let nb20=0;for(let k=n-21;k<n-1;k++)if(bel(k))nb20++;const na20=20-nb20;let nb5=0;for(let k=n-5;k<n;k++)if(bel(k))nb5++;
+  const xu=C[n-1]>=m60&&C[n-2]<m1,xd=C[n-1]<m60&&C[n-2]>=m1,d60=(C[n-1]/m60-1)*100,up=C[n-1]>C[n-2],dn=C[n-1]<C[n-2],r=[];
+  if(xu&&s>=-0.2&&nb20>=10)r.push(1);if(xu&&s>0&&nb20<=5)r.push(2);
+  if(s>0&&d60>=0&&d60<=5&&Math.min(...L.slice(-3))<=m60*1.02&&nb5===0&&up)r.push(3);if(d60<=-15&&up)r.push(4);
+  if(xd&&s<=0.2&&na20>=10)r.push(5);if(xd&&s<0&&na20<=5)r.push(6);
+  if(s<0&&d60<0&&d60>=-5&&Math.max(...H.slice(-3))>=m60*0.98&&nb5===5&&dn)r.push(7);if(d60>=20&&dn)r.push(8);
+  return {r,d60,s,m60,date:d[n-1][0]};
+}
+const granStat=no=>((granD&&granD.stats&&granD.stats.rules)||[]).find(x=>x.no===no)||{};
+function granHTML(c){
+  const f=kfMem[c];if(!f||!f.d||f.d.length<90)return "";const g=granLast(f.d);if(!g.r)return "";
+  const pos=g.d60>=0?"上方 "+F(g.d60,1)+"%":"下方 "+F(-g.d60,1)+"%",dir=g.s>0.2?"上揚":g.s<-0.2?"下彎":"走平";
+  return `<div class="sec"><span>葛蘭碧八大法則（季線）</span><span>${esc(g.date.slice(5))} 收盤</span></div>
+   <div class="li" data-tile="gran"><div class="l">${g.r.length?g.r.map(no=>{const R=GRAN[no-1],st=granStat(no),b=R[1]==="買";return `<b style="color:${b?"var(--up)":"var(--down)"}">${b?"買點":"賣點"} ${no}・${R[2]}</b>${st.n?`<small>　20 年：${R[1]==="買"?"之後 20 天上漲機率 "+F(st.win,0)+"%、平均 "+pct(st.avg,1):"之後 20 天平均 "+pct(st.avg,1)+"、上漲機率 "+F(st.win,0)+"%"}（比同日全部股票 ${pct(st.ex,1)}）</small>`:""}<br><small>${R[3]}</small>`}).join("<br>"):`今天沒有出現八大法則的訊號`}
+   <small style="display:block;margin-top:4px">股價在季線${pos}，季線${dir}（5 日 ${pct(g.s,2)}）・點這裡看八大法則說明和今日名單</small></div></div>`;
+}
+function granOvHTML(){
+  const R=GRAN[GRN-1],st=granStat(GRN),L=(granD&&granD.lists&&granD.lists[GRN])||[],buy=R[1]==="買";
+  let h=`<div class="seg" style="flex-wrap:wrap">${GRAN.map(g=>`<button data-grn="${g[0]}" class="${GRN===g[0]?"on":""}" style="color:${g[1]==="買"?"var(--up)":"var(--down)"}">${g[1]}${g[0]}<small>${granD&&granD.lists?(granD.lists[g[0]]||[]).length:""}</small></button>`).join("")}</div>`;
+  h+=`<div class="light" style="border-color:${buy?"#e8322a":"#25d925"}"><div class="lt"><b style="color:${buy?"var(--up)":"var(--down)"}">${buy?"買點":"賣點"} ${GRN}・${R[2]}</b></div><div class="ld">${R[3]}。</div></div>`;
+  if(st.n)h+=`<div class="pstat"><div><span>20 年筆數</span><b>${fmtC(st.n,0)}</b></div><div><span>20 天後上漲</span><b>${F(st.win,0)}%</b></div><div><span>平均報酬</span><b class="${cls(st.avg)}">${pct(st.avg,1)}</b></div><div><span>比全部股票</span><b class="${cls(st.ex)}">${pct(st.ex,1)}</b></div></div>
+   <div class="foot" style="padding:6px 12px;border-bottom:1px solid var(--line)">${buy?(st.ex>0.3?"✅ 這條買點 20 年來確實比隨便買好":"⚠ 這條買點 20 年來沒有比隨便買好，不建議單獨使用"):(st.ex<-0.3?"✅ 這條賣點 20 年來確實比較會跌，持有中遇到要小心":"⚠ 這條賣點 20 年來並沒有比較會跌，不建議看到就賣")}${st.yrs?`；${st.yrs[1]} 年中有 ${st.yrs[0]} 年有效`:""}${st.gn?`。大盤綠燈時：${fmtC(st.gn,0)} 筆，上漲 ${F(st.gwin,0)}%、平均 ${pct(st.gavg,1)}`:""}。</div>`;
+  h+=`<details class="btbox"><summary>📖 葛蘭碧八大法則是什麼？怎麼驗證？</summary><div style="padding-top:6px;line-height:1.7">美國分析師葛蘭碧（Joseph Granville）用「股價和均線的關係」整理出 4 個買點、4 個賣點。這裡用台股常用的<b>季線（60 日均線）</b>，把每一條寫成明確的規則。<br><b>驗證方法</b>：20 年還原股價、日均成交 2,000 萬以上的股票，出現訊號的隔天開盤買、抱 20 個交易日收盤賣，已扣手續費和證交稅 0.585%，再和「同一天全部股票」比較，看是不是真的比較好（買點）或比較差（賣點）。</div>
+   <table><tr><th>法則</th><th>筆數</th><th>上漲</th><th>平均</th><th>比全部</th></tr>${GRAN.map(g=>{const t=granStat(g[0]);return `<tr data-grn="${g[0]}"><td style="color:${g[1]==="買"?"var(--up)":"var(--down)"}">${g[1]}${g[0]} ${g[2]}</td><td>${t.n?fmtC(t.n,0):"—"}</td><td>${t.n?F(t.win,0)+"%":"—"}</td><td class="${cls(t.avg)}">${t.n?pct(t.avg,1):"—"}</td><td class="${cls(t.ex)}">${t.n?pct(t.ex,1):"—"}</td></tr>`}).join("")}</table>
+   <div class="foot" style="padding:4px 0 0">「比全部」＝訊號股票的平均報酬減掉同一天全部股票的平均。買點越正越好、賣點越負越準。過去表現不代表未來。</div></details>`;
+  h+=`<div class="sec"><span>今天符合「${R[2]}」・${L.length} 檔</span><span>${granD?esc(granD.date.slice(5))+" 收盤":""}</span></div>`;
+  h+=L.map(x=>{const k=cls(x.ch),ind=(x.ic&&IND[x.ic])||"";return `<div class="lc" data-code="${x.c}"><div class="r1">${typeof x.ai==="number"?`<span class="scb" style="background:${aiCol(x.ai)}">${x.ai}</span>`:""}<b>${esc(x.n)}</b><span class="cd">${x.c}${ind?"・"+esc(ind):""}${x.w?"・<span style='color:#ff5a4a'>處置</span>":""}</span><span class="px ${k}">${F(x.px,pxD(x.px))}</span><span class="pc ${k}">${x.ch>0?"+":""}${F(x.ch,2)}%</span></div><div class="sgs"><span>離季線 ${pct(x.d60,1)}</span><span>日均成交 ${F(x.amt,1)} 億</span></div></div>`}).join("")||`<div class="empty">${granD?"今天沒有股票符合這一條":"資料讀取中…"}</div>`;
+  h+=`<div class="foot">只列日均成交 2,000 萬以上的股票，依成交金額排序。分數是「建議買進」模型的排名（只有低檔股有）。<br><b style="color:#ffd27a">依公開資料以固定規則計算，僅供參考，不構成投資建議。</b></div>`;
+  return h;
+}
 function lbStockHTML_old(c){
   const x=lbItem(c);if(!x)return lowbase?`<div class="sec"><span>低檔分析</span></div><div class="lbx mute">這檔目前沒有在低檔橫盤 3 個月以上（或成交量太少），不在選股名單中。</div>`:"";
   const sg=lbSig(x),p=x.bhi>x.blo?Math.max(0,Math.min(100,(x.px-x.blo)/(x.bhi-x.blo)*100)):50,d=v=>F(v,v>=1000?0:2),inList=lbList().some(y=>y.c===c);
@@ -1362,7 +1409,8 @@ document.addEventListener("click",e=>{
   if(t.closest("#tbRef")){toast("更新中…");(tab==="intl"?refreshIntl():boot(true));return}
   if(t.closest("#tbSearch")){go("add");return}
   if(t.closest("#tbHome")){go("home");return}
-  const tl=t.closest("[data-tile]");if(tl){tileGo(tl.dataset.tile);return}
+  const gr=t.closest("[data-grn]");if(gr){GRN=+gr.dataset.grn;store.set("grn",GRN);if(ovKind==="gran"){renderOv();$("ovBody").scrollTop=0}return}
+  const tl=t.closest("[data-tile]");if(tl){if(ovKind==="stock"&&tl.dataset.tile==="gran"){openOv("gran");return}tileGo(tl.dataset.tile);return}
   if(t.closest("#tbEdit")){openOv("edit");return}
   if(t.closest("#checkUpd")){toast("檢查中…");checkUpdate(true);return}
   const so=t.closest("[data-sort]");if(so&&so.dataset.sort){const k=so.dataset.sort;sortSt=sortSt.k!==k?{k,d:-1}:sortSt.d===-1?{k,d:1}:{k:"",d:0};ovKind==="indlist"?renderOv():render();return}
@@ -1469,6 +1517,7 @@ async function boot(force){
     loadFund(force).then(rerender),
     loadBT(force).then(rerender),
     loadBrk(force).then(()=>{if(tab==="rise")refreshRT();rerender()}),
+    loadGran(force).then(()=>{if(ovKind==="gran"||ovKind==="stock")renderOv()}),
     loadAI(force).then(()=>{if(tab==="ai"||tab==="suggest")refreshRT();rerender()}),
     loadLowbase(force).then(()=>{if(tab==="pick"||tab==="home"||tab==="suggest"||tab==="rise")refreshRT();if(ovKind==="lowbase")renderOv();else rerender()}),
     loadDaily(false).then(()=>Promise.all([loadFlows(force),loadInsti(force)])).then(rerender)

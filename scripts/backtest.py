@@ -10,7 +10,7 @@ import json, os, time, datetime as dt
 
 TW = dt.timezone(dt.timedelta(hours=8))
 H = 20  # 看之後幾個交易日
-VER = 17  # 回測程式版本；改版時自動重跑
+VER = 18  # 回測程式版本；改版時自動重跑
 
 
 def frames(series, dates):
@@ -196,6 +196,15 @@ def run(series, dates):
         traceback.print_exc()
         print("突破研究失敗", e, flush=True)
 
+    # ---------- 葛蘭碧八大法則：每一條用 20 年資料驗證 ----------
+    gran = None
+    try:
+        gran = gran_study(O, Hh, L, C, V, dates)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print("葛蘭碧研究失敗", e, flush=True)
+
     # ---------- 量縮研究：量縮後會不會比較容易漲？ ----------
     vol_study = None
     try:
@@ -280,9 +289,141 @@ def run(series, dates):
         print("模型校準失敗", e, flush=True)
 
     out = {"asof": dates[-1], "from": dates[250] if len(dates) > 250 else dates[0], "days": H,
-           "base": base, "rise": rise, "sug": sug, "model": model, "model60": model60, "vol_study": vol_study, "plan": plan, "brk": brk, "ver": VER, "nd": len(dates), "secs": round(time.time() - t0)}
+           "base": base, "rise": rise, "sug": sug, "model": model, "model60": model60, "vol_study": vol_study, "plan": plan, "brk": brk, "gran": gran, "ver": VER, "nd": len(dates), "secs": round(time.time() - t0)}
     print(f"回測完成：{out['from']}～{out['asof']}，全市場 {base['n']} 筆，即將起漲候選 {rise['all']['n']} 筆，建議買進候選 {sug['all']['n']} 筆，{out['secs']} 秒", flush=True)
     return out
+
+
+GRAN = [
+    # 編號, 買/賣, 名稱, 說明（季線＝60 日均線）
+    (1, "買", "突破季線", "季線走平或翻揚，股價從季線下方（近 20 天至少 10 天在線下）突破站上季線"),
+    (2, "買", "假跌破", "季線仍上揚，股價短暫跌破季線（近 20 天在線下不超過 5 天）又馬上站回"),
+    (3, "買", "回測季線有撐", "季線上揚，股價回檔到季線附近（2% 內）沒有跌破，今天收紅轉強"),
+    (4, "買", "跌深反彈", "股價在季線下方超過 15%（負乖離過大），今天收紅"),
+    (5, "賣", "跌破季線", "季線走平或下彎，股價從季線上方（近 20 天至少 10 天在線上）跌破季線"),
+    (6, "賣", "假突破", "季線仍下彎，股價短暫站上季線（近 20 天在線上不超過 5 天）又跌回"),
+    (7, "賣", "反彈遇壓", "季線下彎，股價反彈到季線附近（2% 內）沒有站上，今天收黑轉弱"),
+    (8, "賣", "漲多拉回", "股價在季線上方超過 20%（正乖離過大），今天收黑"),
+]
+
+
+def gran_masks(Hh, L, C):
+    """回傳 {編號: 布林表}，定義和 App、gran_last 相同"""
+    m60 = C.rolling(60).mean()
+    s = (m60 / m60.shift(5) - 1) * 100
+    below = C < m60
+    nb20 = below.astype(float).shift(1).rolling(20).sum()
+    na20 = 20 - nb20
+    xu = (C >= m60) & (C.shift(1) < m60.shift(1))
+    xd = (C < m60) & (C.shift(1) >= m60.shift(1))
+    d60 = (C / m60 - 1) * 100
+    up, dn = C > C.shift(1), C < C.shift(1)
+    nb5 = below.astype(float).rolling(5).sum()
+    return {
+        1: xu & (s >= -0.2) & (nb20 >= 10),
+        2: xu & (s > 0) & (nb20 <= 5),
+        3: (s > 0) & (d60 >= 0) & (d60 <= 5) & (L.rolling(3).min() <= m60 * 1.02) & (nb5 == 0) & up,
+        4: (d60 <= -15) & up,
+        5: xd & (s <= 0.2) & (na20 >= 10),
+        6: xd & (s < 0) & (na20 <= 5),
+        7: (s < 0) & (d60 < 0) & (d60 >= -5) & (Hh.rolling(3).max() >= m60 * 0.98) & (nb5 == 5) & dn,
+        8: (d60 >= 20) & dn,
+    }
+
+
+def gran_last(C, Hh, L):
+    """單一股票最後一天符合哪幾條（list 版，給每日名單用）"""
+    n = len(C)
+    if n < 90:
+        return []
+    ma = lambda k: sum(C[k - 59:k + 1]) / 60
+    m60, m60_1, m60_5 = ma(n - 1), ma(n - 2), ma(n - 6)
+    s = (m60 / m60_5 - 1) * 100
+    bel = lambda k: C[k] < ma(k)
+    nb20 = sum(1 for k in range(n - 21, n - 1) if bel(k))
+    na20 = 20 - nb20
+    xu = C[-1] >= m60 and C[-2] < m60_1
+    xd = C[-1] < m60 and C[-2] >= m60_1
+    d60 = (C[-1] / m60 - 1) * 100
+    up, dn = C[-1] > C[-2], C[-1] < C[-2]
+    nb5 = sum(1 for k in range(n - 5, n) if bel(k))
+    r = []
+    if xu and s >= -0.2 and nb20 >= 10: r.append(1)
+    if xu and s > 0 and nb20 <= 5: r.append(2)
+    if s > 0 and 0 <= d60 <= 5 and min(L[-3:]) <= m60 * 1.02 and nb5 == 0 and up: r.append(3)
+    if d60 <= -15 and up: r.append(4)
+    if xd and s <= 0.2 and na20 >= 10: r.append(5)
+    if xd and s < 0 and na20 <= 5: r.append(6)
+    if s < 0 and -5 <= d60 < 0 and max(Hh[-3:]) >= m60 * 0.98 and nb5 == 5 and dn: r.append(7)
+    if d60 >= 20 and dn: r.append(8)
+    return r
+
+
+def gran_study(O, Hh, L, C, V, dates):
+    """每一條法則：訊號隔天開盤買 → 抱 20 天收盤賣（扣成本），和同一天全部有流動性股票比較"""
+    import numpy as np
+    amt = C * V.rolling(20).mean() / 1e5
+    jump = C.pct_change().abs().rolling(60, min_periods=1).max() > 0.11
+    base = (amt >= LIQ) & ~jump & C.notna()
+    r20 = (C.shift(-HOLD) / O.shift(-1) - 1 - COST)
+    ok = base & r20.notna() & (O.shift(-1) > 0)
+    R = r20.where(ok)
+    day_avg = R.mean(axis=1)                     # 每天全部股票的平均（對照組）
+    m60 = C.rolling(60).mean()
+    breadth = ((C > m60).sum(axis=1) / C.notna().sum(axis=1) * 100).values
+    yrs = np.array([int(d[:4]) for d in dates])
+    masks = gran_masks(Hh, L, C)
+    out = []
+    for no, side, name, desc in GRAN:
+        M = (masks[no] & ok).values
+        ii, jj = np.nonzero(M)
+        r = R.values[ii, jj]
+        ex = r - day_avg.values[ii]
+        row = {"no": no, "side": side, "name": name, "desc": desc, "n": int(len(r))}
+        if len(r):
+            row.update(win=round(float((r > 0).mean() * 100), 1), avg=round(float(r.mean() * 100), 2),
+                       ex=round(float(ex.mean() * 100), 2), bwin=round(float((day_avg.values[ii] > 0).mean() * 100), 1))
+            g = breadth[ii] < 15
+            if g.sum() >= 100:
+                row.update(gn=int(g.sum()), gwin=round(float((r[g] > 0).mean() * 100), 1), gavg=round(float(r[g].mean() * 100), 2))
+            yy = yrs[ii]
+            ys = [float(ex[yy == y].mean()) for y in sorted(set(yy.tolist())) if (yy == y).sum() >= 30]
+            good = sum(1 for v in ys if (v > 0) == (side == "買"))
+            row["yrs"] = [good, len(ys)]
+        out.append(row)
+        print(f"  葛蘭碧 {no} {side} {name}：{row['n']} 筆 勝率 {row.get('win')}% 平均 {row.get('avg')}%｜比同日全部股票 {row.get('ex'):+}%｜綠燈時 {row.get('gn')} 筆 勝率 {row.get('gwin')}% 平均 {row.get('gavg')}%｜有效年份 {row.get('yrs')}" if row["n"] else f"  葛蘭碧 {no} 無資料", flush=True)
+    return {"rules": out, "hold": HOLD, "from": dates[260] if len(dates) > 260 else dates[0]}
+
+
+def mkt_index(series, dates, n=300):
+    """全市場等權平均指數（最近 n 天），單日漲跌限制在 ±11% 避免資料斷層"""
+    dl = dates[-n:]
+    pos = {d: i for i, d in enumerate(dl)}
+    sm, ct = [0.0] * len(dl), [0] * len(dl)
+    for c, rs in series.items():
+        if c.startswith("00") or len(rs) < 2:
+            continue
+        for k in range(max(1, len(rs) - n - 1), len(rs)):
+            i = pos.get(rs[k][0])
+            if i is None or not rs[k - 1][6]:
+                continue
+            sm[i] += max(-0.11, min(0.11, rs[k][6] / rs[k - 1][6] - 1)); ct[i] += 1
+    idx, v = [], 1.0
+    for i in range(len(dl)):
+        v *= 1 + (sm[i] / ct[i] if ct[i] else 0)
+        idx.append(v)
+    return idx
+
+
+def crash_state(idx):
+    """大盤急跌警示：等權指數的年線（250 日均）近 20 天下彎超過 1%。
+    20 年資料：同樣綠燈，有警示時勝率約 6 成、平均 +3%，平常約 8 成、+10%（警示多在 2008、2011、2012、2015 年），所以張數減半。"""
+    if len(idx) < 271:
+        return {"on": False}
+    ma = lambda k: sum(idx[k - 249:k + 1]) / 250
+    ys = (ma(len(idx) - 1) / ma(len(idx) - 21) - 1) * 100
+    dd = (idx[-1] / max(idx[-250:]) - 1) * 100
+    return {"on": ys < -1, "ys": round(ys, 2), "dd": round(dd, 1)}
 
 
 FEAT_NAME = {"f20p": "外資20日買賣超佔量", "f5p": "外資5日買賣超佔量", "t20p": "投信20日買賣超佔量", "t5p": "投信5日買賣超佔量", "vq": "近月量／半年量", "r5": "近5日漲跌", "vol20": "波動度", "amt": "成交金額(億)", "rvy": "營收年增", "mkt": "大盤站上季線比例", "d60": "離季線", "slope": "季線方向", "m20": "站上月線", "ch": "今日漲跌", "vr": "今日量／20日均量", "u60": "季線下天數",
@@ -968,6 +1109,24 @@ def plan_validate(sim, summ, X):
         out["states"].append([name, None, None, o])
         if o["n"]:
             print("  強化0 燈號｜%-8s %4d 天 %6d 筆｜勝率 %.1f%% 平均 %+.2f%%（賺 %+.1f%%／賠 %+.1f%%）最多套牢 %.1f%%" % (name, o["ndays"], o["n"], o["win"], o["avg"], o["aw"], o["al"], o["mae"]), flush=True)
+    # 0b. 大盤急跌警示（等權指數年線下彎）時的成績
+    try:
+        rr = np.where(np.isnan(Cv[1:] / Cv[:-1]), np.nan, np.clip(Cv[1:] / Cv[:-1] - 1, -0.11, 0.11))
+        ew = np.r_[1.0, np.cumprod(1 + np.nan_to_num(np.nanmean(rr, axis=1)))]
+        ma = np.convolve(ew, np.ones(250) / 250, mode="full")[:N]
+        ma[:249] = np.nan
+        ys = np.full(N, np.nan)
+        ys[20:] = (ma[20:] / ma[:-20] - 1) * 100
+        crash = ys < -1
+    except Exception as e:
+        print("急跌警示計算失敗", e, flush=True)
+        crash = np.zeros(N, bool)
+    out["crash"] = []
+    for name in ("green2", "green", "rebound", "yellow"):
+        dm = code == name
+        a1, a2 = st((dm & crash)[S_si] & S_in), st((dm & ~crash)[S_si] & S_in)
+        out["crash"].append([name, a1, a2])
+        print("  強化0b 急跌警示｜%-8s 警示中 %s 筆 勝率 %s%% 平均 %s%%｜平常 %s 筆 勝率 %s%% 平均 %s%%" % (name, a1.get("n"), a1.get("win"), a1.get("avg"), a2.get("n"), a2.get("win"), a2.get("avg")), flush=True)
     # 1. 進場時機
     conds = {
         "綠燈（<15%）": b < 15, "黃燈（15～25%）": (b >= 15) & (b < 25), "<10%": b < 10, "<20%": b < 20,
@@ -1016,7 +1175,7 @@ def plan_validate(sim, summ, X):
     isin = lambda names: np.isin(code, names)[S_si] & S_in
     for name, m in (("rec", isin(["green2", "green", "rebound"])), ("agg", isin(list(GO))), ("best", isin(["green2", "rebound"])), ("all", S_in),
                     ("綠燈＋黃燈", (S_br < 25) & S_in), ("只做綠燈", (S_br < 15) & S_in), ("止跌回升A", conds["止跌回升A：10日內曾<15、回升≥3、仍<30"][S_si] & S_in),
-                    ("綠燈＋止跌回升A", (conds["綠燈（<15%）"] | conds["止跌回升A：10日內曾<15、回升≥3、仍<30"])[S_si] & S_in), ("每天都做（不看燈號）", S_in)):
+                    ("綠燈＋止跌回升A", (conds["綠燈（<15%）"] | conds["止跌回升A：10日內曾<15、回升≥3、仍<30"])[S_si] & S_in), ("每天都做（不看燈號）", S_in), ("rec＋急跌警示時不買", isin(["green2", "green", "rebound"]) & ~crash[S_si])):
         for M in (10, 5):
             r = portfolio_sim(trades(m), Cv, dates, M)
             out["port"][f"{name}/{M}"] = r
@@ -1183,16 +1342,51 @@ def score_today(series, dates, fund=None, ind=None, top=150, warn=None):
             r["nc"] = round(r["px"] + r["atr"], 2)       # 不追價：隔天開盤高於這個價就不買
     mn10 = min([x[1] for x in bh[-10:]] + [breadth]) if bh else breadth
     state = light_state(breadth, mn10)
+    crash = {"on": False}
+    try:
+        crash = crash_state(mkt_index(series, dates))
+        print(f"大盤急跌警示：{'有' if crash['on'] else '無'}（年線 20 日變化 {crash.get('ys')}%，距一年高點 {crash.get('dd')}%）", flush=True)
+    except Exception as e:
+        print("急跌警示失敗", e, flush=True)
+    try:
+        gran_today(series, dates, bt.get("gran"), {r["c"]: r["ai"] for r in rows}, ind, warn)
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        print("葛蘭碧名單失敗", e, flush=True)
     recs = [r for r in rows if r.get("tier")]
     track = update_track(series, last, recs if state in GO else [])   # 紅燈的日子不算推薦
     keep = {r["c"] for r in rows[:top]} | {r["c"] for r in recs}
-    res = {"date": last, "plan": {k: plan.get(k) for k in ("ks", "kt", "hold", "cost", "liq", "tiers", "years", "states", "valid")} if plan else None, "track": track, "state": state, "mn10": round(mn10, 1), "model_test": m.get("test"), "dec": m.get("test_dec"), "base": m.get("test_base"),
+    res = {"date": last, "plan": {k: plan.get(k) for k in ("ks", "kt", "hold", "cost", "liq", "tiers", "years", "states", "valid")} if plan else None, "track": track, "state": state, "crash": crash, "mn10": round(mn10, 1), "model_test": m.get("test"), "dec": m.get("test_dec"), "base": m.get("test_base"),
            "top5": m.get("test_top5"), "top10": m.get("test_top"), "wf": m.get("wf"), "breadth": round(breadth, 1), "bh": bh,
            "items": [r for r in rows if r["c"] in keep], "n": len(rows), "nliq": len(liquid)}
     os.makedirs("out", exist_ok=True)
     json.dump(res, open("out/ai.json", "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
     print(f"數據評分：{len(rows)} 檔（有流動性 {len(liquid)} 檔），建議買進 " + "／".join(f"{sum(1 for r in recs if r['tier'] == t[0])}" for t in TIERS) + f" 檔，處置股排除 {sum(1 for r in rows if r.get('warn'))} 檔", flush=True)
     return out
+
+
+def gran_today(series, dates, stats, ai=None, ind=None, warn=None):
+    """今天符合葛蘭碧各法則的股票（有流動性），輸出 out/gran.json"""
+    last = dates[-1]
+    lists = {str(g[0]): [] for g in GRAN}
+    for c, rs in series.items():
+        if c.startswith("00") or len(rs) < 90 or rs[-1][0] != last:
+            continue
+        C = [r[6] for r in rs[-90:]]; Hh = [r[4] for r in rs[-90:]]; L = [r[5] for r in rs[-90:]]; V = [r[7] for r in rs[-20:]]
+        amt = C[-1] * sum(V) / 20 / 1e5
+        if amt < LIQ or any(abs(C[i] / C[i - 1] - 1) > 0.11 for i in range(len(C) - 60, len(C))):
+            continue
+        m60 = sum(C[-60:]) / 60
+        for no in gran_last(C, Hh, L):
+            lists[str(no)].append({"c": c, "n": rs[-1][1], "px": round(C[-1], 2), "ch": round((C[-1] / C[-2] - 1) * 100, 2),
+                                   "d60": round((C[-1] / m60 - 1) * 100, 1), "amt": round(amt, 2), "ai": (ai or {}).get(c),
+                                   "ic": (ind or {}).get(c, ""), "w": (warn or {}).get(c)})
+    for k in lists:
+        lists[k].sort(key=lambda r: -r["amt"])
+        lists[k] = lists[k][:60]
+    os.makedirs("out", exist_ok=True)
+    json.dump({"date": last, "stats": stats, "lists": lists}, open("out/gran.json", "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
+    print("葛蘭碧今日：" + "／".join(f"{k}:{len(v)}" for k, v in lists.items()), flush=True)
 
 
 def update_track(series, last, recs, path="cache/recs.json"):
