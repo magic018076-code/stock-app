@@ -1,0 +1,14 @@
+name: probe-today
+on: workflow_dispatch
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          UA="Mozilla/5.0 (Linux; Android 14) Chrome/130"
+          echo "=== FRED"; curl -s -m 30 "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DEXTAUS" | (head -3; tail -3)
+          echo "=== YAHOO"; curl -s -m 30 -A "$UA" "https://query1.finance.yahoo.com/v8/finance/chart/TWD=X?range=20y&interval=1d" | python3 -c "
+          import json,sys; j=json.load(sys.stdin)['chart']['result'][0]; t=j['timestamp']; c=j['indicators']['quote'][0]['close']; print(len(t), t[0], c[0], t[-1], c[-1])"
+          echo "=== BOT"; curl -s -m 30 -A "$UA" "https://rate.bot.com.tw/xrt/flcsv/0/day" | head -3
+          echo "=== CBC"; curl -s -m 30 -A "$UA" "https://www.cbc.gov.tw/tw/lp-645-1.html" | head -c 300
+          echo "=== TAIFEX"; curl -s -m 30 -A "$UA" "https://www.taifex.com.tw/cht/3/dailyFXRate" | grep -o "USD/NTD[^<]*" | head -3
