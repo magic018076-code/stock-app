@@ -12,19 +12,19 @@ TW = dt.timezone(dt.timedelta(hours=8))
 
 
 def _get(url, data=None, timeout=40):
-    for i in range(3):
+    for i in range(4):
         try:
             req = urllib.request.Request(url, data=data, headers={"User-Agent": UA})
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return r.read()
         except Exception as e:
             print("  匯率 retry", url[:60], e, flush=True)
-            time.sleep(5)
+            time.sleep(10 + i * 10)
     return None
 
 
 def fetch_fred():
-    b = _get("https://fred.stlouisfed.org/graph/fredgraph.csv?id=DEXTAUS")
+    b = _get("https://fred.stlouisfed.org/graph/fredgraph.csv?id=DEXTAUS&cosd=2006-01-01", timeout=120)   # 只抓 2006 年起，檔案小很多
     out = {}
     for line in (b or b"").decode("utf-8", "replace").splitlines()[1:]:
         p = line.split(",")
