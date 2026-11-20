@@ -10,7 +10,7 @@ import json, os, time, datetime as dt
 
 TW = dt.timezone(dt.timedelta(hours=8))
 H = 20  # 看之後幾個交易日
-VER = 20  # 回測程式版本；改版時自動重跑
+VER = 21  # 回測程式版本；改版時自動重跑
 
 
 def frames(series, dates):
