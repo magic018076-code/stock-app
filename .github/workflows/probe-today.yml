@@ -7,7 +7,6 @@ jobs:
       - run: |
           set +e
           UA="Mozilla/5.0 (Linux; Android 14) Chrome/130"
-          echo "=== YAHOO2"; curl -s -m 30 -A "$UA" "https://query2.finance.yahoo.com/v8/finance/chart/TWD=X?range=1mo&interval=1d" | head -c 400; echo
-          echo "=== BOT"; curl -s -m 30 -A "$UA" "https://rate.bot.com.tw/xrt/flcsv/0/day" | head -3
-          echo "=== BOTHIST"; curl -s -m 30 -A "$UA" "https://rate.bot.com.tw/xrt/flcsv/0/2026-11-19" | head -3
-          echo "=== TAIFEX"; curl -s -m 30 -A "$UA" "https://www.taifex.com.tw/cht/3/dailyFXRateDown" -d "queryStartDate=2026/11/01&queryEndDate=2026/11/20" | iconv -f big5 -t utf8 2>/dev/null | head -5
+          echo "=== CBC"; curl -s -m 30 -A "$UA" "https://cpx.cbc.gov.tw/API/DataAPI/Get?FileName=BP01D01" | head -c 600; echo
+          echo "=== TAIFEX"; curl -s -m 30 -A "$UA" -X POST "https://www.taifex.com.tw/cht/3/dailyFXRateDown" -d "queryStartDate=2026%2F11%2F01&queryEndDate=2026%2F11%2F20" -o fx.csv; ls -la fx.csv; file fx.csv; python3 -c "print(open('fx.csv','rb').read()[:400].decode('big5','replace'))"
+          echo "=== TAIFEXPAGE"; curl -s -m 30 -A "$UA" "https://www.taifex.com.tw/cht/3/dailyFXRate" | python3 -c "import sys,re;t=sys.stdin.read();print(len(t));print(re.findall(r'\d{4}/\d{2}/\d{2}[^\n]{0,200}',t)[:3])"
