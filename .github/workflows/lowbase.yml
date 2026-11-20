@@ -11,6 +11,8 @@ on:
       - scripts/build_lowbase.py
       - scripts/build_fund.py
       - scripts/build_adjust.py
+      - scripts/build_margin.py
+      - scripts/build_fx.py
       - scripts/backtest.py
       - .github/workflows/lowbase.yml
 
