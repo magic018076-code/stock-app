@@ -384,6 +384,11 @@ def main():
     os.makedirs("out", exist_ok=True)
     try:
         import backtest
+        try:
+            import build_fx
+            build_fx.run()
+        except Exception as e:
+            print("匯率失敗", e, flush=True)
         backtest.maybe_run(series, sorted(h["days"]), force=os.environ.get("FORCE_BT") == "1")
         warn = fetch_warn()
         ai = backtest.score_today(series, sorted(h["days"]), fund, {x["c"]: x.get("ic", "") for x in res["items"]} | fetch_ind_cached(), warn=warn)

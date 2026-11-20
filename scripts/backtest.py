@@ -10,7 +10,7 @@ import json, os, time, datetime as dt
 
 TW = dt.timezone(dt.timedelta(hours=8))
 H = 20  # 看之後幾個交易日
-VER = 19  # 回測程式版本；改版時自動重跑
+VER = 20  # 回測程式版本；改版時自動重跑
 
 
 def frames(series, dates):
@@ -132,6 +132,22 @@ def margin_frames(C):
     out["mmb"] = pd.DataFrame(np.repeat(mm.values[:, None], C.shape[1], axis=1), index=C.index, columns=C.columns)
     print(f"融資券資料：{sum(1 for v in db.values() if v)} 天（全市場完整 {int(full.sum())} 天）", flush=True)
     return out
+
+
+def fx_series(dates):
+    """美元／新台幣匯率對齊交易日（沒有的日子用前一天），回傳 numpy 陣列"""
+    import numpy as np
+    try:
+        db = json.load(open("cache/fx.json", encoding="utf-8"))
+    except Exception:
+        return np.full(len(dates), np.nan)
+    ks = sorted(db)
+    out, j, last = [], 0, np.nan
+    for d in dates:
+        while j < len(ks) and ks[j] <= d:
+            last = db[ks[j]]; j += 1
+        out.append(last)
+    return np.array(out, float)
 
 
 def stats(ret, mx):
@@ -273,6 +289,7 @@ def run(series, dates):
 
     # ---------- 用資料校準評分（模型 v2）：更多條件＋逐年檢驗 ----------
     model = model60 = plan = None
+    fx_study = None
     try:
         rvy = rev_frame(C)                                   # 當時已公布的最新月營收年增率
         above = (C > m60)
@@ -286,10 +303,27 @@ def run(series, dates):
              "rvy": rvy, "mkt": mkt, "vq": V.rolling(20).mean() / v120}
         F.update(insti_frames(C, V))
         F.update(margin_frames(C))
+        fxv = fx_series(list(C.index))
+        fx20 = np.r_[np.full(20, np.nan), (fxv[20:] / fxv[:-20] - 1) * 100]      # 正＝台幣貶值、負＝台幣升值
+        F["fx20"] = pd.DataFrame(np.repeat(fx20[:, None], C.shape[1], axis=1), index=C.index, columns=C.columns)
+        fx_study = []
+        try:   # 匯率研究：台幣 20 日升貶和之後 20 天股票報酬
+            liq = (C * V.rolling(20).mean() / 1e5 >= LIQ) & valid
+            ro = (C.shift(-H) / O.shift(-1) - 1 - COST).where(liq & (O.shift(-1) > 0))
+            ro_m, ro_w = ro.mean(axis=1).values * 100, ((ro > 0).sum(axis=1) / ro.notna().sum(axis=1)).values * 100
+            b_ = breadth.values
+            for lab, m_ in (("all", ~np.isnan(fx20)), ("green", (b_ < 15) & ~np.isnan(fx20)), ("other", (b_ >= 15) & ~np.isnan(fx20))):
+                for lo, hi in FX_BINS:
+                    k = m_ & (fx20 >= lo) & (fx20 < hi) & ~np.isnan(ro_m)
+                    if k.sum() >= 5:
+                        fx_study.append([lab, lo, hi, int(k.sum()), round(float(np.nanmean(ro_m[k])), 2), round(float(np.nanmean(ro_w[k])), 1)])
+                        print(f"  匯率研究｜{lab} 台幣 20 日 {'貶' if lo >= 0 else '升'} {lo}～{hi}%：{int(k.sum())} 天，之後 20 天全部股票平均 {np.nanmean(ro_m[k]):+.2f}%、上漲比例 {np.nanmean(ro_w[k]):.1f}%", flush=True)
+        except Exception as e:
+            print("匯率研究失敗", e, flush=True)
         try:   # 融資研究：綠燈時，全市場融資 20 日減少多少（斷頭潮）和之後報酬的關係
             mmv = F["mmb"].values[:, 0]
             liq = (C * V.rolling(20).mean() / 1e5 >= LIQ) & valid
-            ro = (C.shift(-H) / O.shift(-1) - 1 - COST).where(liq).mean(axis=1).values * 100
+            ro = (C.shift(-H) / O.shift(-1) - 1 - COST).where(liq & (O.shift(-1) > 0)).mean(axis=1).values * 100
             b_ = breadth.values
             for lab, m_ in (("全部日子", ~np.isnan(mmv)), ("綠燈", (b_ < 15) & ~np.isnan(mmv))):
                 for lo, hi in ((-99, -10), (-10, -5), (-5, 0), (0, 5), (5, 99)):
@@ -337,7 +371,7 @@ def run(series, dates):
         print("模型校準失敗", e, flush=True)
 
     out = {"asof": dates[-1], "from": dates[250] if len(dates) > 250 else dates[0], "days": H,
-           "base": base, "rise": rise, "sug": sug, "model": model, "model60": model60, "vol_study": vol_study, "plan": plan, "brk": brk, "gran": gran, "ver": VER, "nd": len(dates), "secs": round(time.time() - t0)}
+           "base": base, "rise": rise, "sug": sug, "model": model, "model60": model60, "vol_study": vol_study, "plan": plan, "brk": brk, "gran": gran, "fx": fx_study, "ver": VER, "nd": len(dates), "secs": round(time.time() - t0)}
     print(f"回測完成：{out['from']}～{out['asof']}，全市場 {base['n']} 筆，即將起漲候選 {rise['all']['n']} 筆，建議買進候選 {sug['all']['n']} 筆，{out['secs']} 秒", flush=True)
     return out
 
@@ -474,7 +508,7 @@ def crash_state(idx):
     return {"on": ys < -1, "ys": round(ys, 2), "dd": round(dd, 1)}
 
 
-FEAT_NAME = {"mb20": "融資20日增減", "mu": "融資使用率", "ssr": "券資比", "mmb": "全市場融資20日增減", "f20p": "外資20日買賣超佔量", "f5p": "外資5日買賣超佔量", "t20p": "投信20日買賣超佔量", "t5p": "投信5日買賣超佔量", "vq": "近月量／半年量", "r5": "近5日漲跌", "vol20": "波動度", "amt": "成交金額(億)", "rvy": "營收年增", "mkt": "大盤站上季線比例", "d60": "離季線", "slope": "季線方向", "m20": "站上月線", "ch": "今日漲跌", "vr": "今日量／20日均量", "u60": "季線下天數",
+FEAT_NAME = {"fx20": "台幣20日升貶(正=貶)", "mb20": "融資20日增減", "mu": "融資使用率", "ssr": "券資比", "mmb": "全市場融資20日增減", "f20p": "外資20日買賣超佔量", "f5p": "外資5日買賣超佔量", "t20p": "投信20日買賣超佔量", "t5p": "投信5日買賣超佔量", "vq": "近月量／半年量", "r5": "近5日漲跌", "vol20": "波動度", "amt": "成交金額(億)", "rvy": "營收年增", "mkt": "大盤站上季線比例", "d60": "離季線", "slope": "季線方向", "m20": "站上月線", "ch": "今日漲跌", "vr": "今日量／20日均量", "u60": "季線下天數",
              "pos": "一年位置", "r10": "近10日漲跌", "r60": "近60日漲跌", "dd": "距一年高點", "rng42": "近2月振幅", "bo": "創60日新高", "gap": "月季線差距"}
 
 
@@ -575,6 +609,7 @@ def light_state(b, mn10):
         return "yellow"
     return "red" if b < 40 else "black"
 HOLD = 20
+FX_BINS = ((-99, -2), (-2, -1), (-1, 0), (0, 1), (1, 2), (2, 99))   # 台幣 20 日升貶幅度分段（美元／台幣變化 %）
 
 
 def breakout_study(O, Hh, L, C, V, dates):
@@ -1306,6 +1341,15 @@ def score_today(series, dates, fund=None, ind=None, top=150, warn=None):
     last = dates[-1]
     feats = {f["k"]: f for f in m["feats"]}
     mmb = None
+    fx20, fxo = None, None
+    try:
+        fxv = fx_series(dates)
+        if len(fxv) > 21 and fxv[-1] == fxv[-1] and fxv[-21] == fxv[-21]:
+            fx20 = float((fxv[-1] / fxv[-21] - 1) * 100)
+            fxo = {"rate": float(fxv[-1]), "c20": round(fx20, 2), "c5": round(float((fxv[-1] / fxv[-6] - 1) * 100), 2), "study": bt.get("fx")}
+            print(f"台幣 20 日：{'貶值' if fx20 > 0 else '升值'} {abs(fx20):.2f}%（{fxv[-1]}）", flush=True)
+    except Exception as e:
+        print("匯率失敗", e, flush=True)
     try:
         mm = (fund or {}).get("mm") or []
         if len(mm) > 20:
@@ -1388,6 +1432,8 @@ def score_today(series, dates, fund=None, ind=None, top=150, warn=None):
                 x[k_] = fz[k_]
         if mmb is not None:
             x["mmb"] = mmb
+        if fx20 is not None:
+            x["fx20"] = fx20
         rv = fz.get("rvy")
         if isinstance(rv, (int, float)):
             x["rvy"] = max(-100.0, min(300.0, rv))
@@ -1441,7 +1487,7 @@ def score_today(series, dates, fund=None, ind=None, top=150, warn=None):
     recs = [r for r in rows if r.get("tier")]
     track = update_track(series, last, recs if state in GO else [])   # 紅燈的日子不算推薦
     keep = {r["c"] for r in rows[:top]} | {r["c"] for r in recs}
-    res = {"date": last, "plan": {k: plan.get(k) for k in ("ks", "kt", "hold", "cost", "liq", "tiers", "years", "states", "valid")} if plan else None, "track": track, "state": state, "crash": crash, "mn10": round(mn10, 1), "model_test": m.get("test"), "dec": m.get("test_dec"), "base": m.get("test_base"),
+    res = {"date": last, "plan": {k: plan.get(k) for k in ("ks", "kt", "hold", "cost", "liq", "tiers", "years", "states", "valid")} if plan else None, "track": track, "state": state, "crash": crash, "fx": fxo, "mn10": round(mn10, 1), "model_test": m.get("test"), "dec": m.get("test_dec"), "base": m.get("test_base"),
            "top5": m.get("test_top5"), "top10": m.get("test_top"), "wf": m.get("wf"), "breadth": round(breadth, 1), "bh": bh,
            "items": [r for r in rows if r["c"] in keep], "n": len(rows), "nliq": len(liquid)}
     os.makedirs("out", exist_ok=True)
