@@ -328,7 +328,16 @@ def run(dates):
         dn = int(d.replace("-", ""))
         for c, v in ins[d].items():
             fi.setdefault(c, []).append([dn, v[0], v[1]])
-    fund = {"date": days[-1] if days else "", "rym": yms[-1] if yms else "", "s": s}
+    mk = []
+    try:
+        import build_margin
+        ms, mk = build_margin.summary(build_margin.update(dates))
+        for c, v in ms.items():
+            s.setdefault(c, {}).update(v)
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        print("融資券失敗", e, flush=True)
+    fund = {"date": days[-1] if days else "", "rym": yms[-1] if yms else "", "s": s, "mm": mk}
     os.makedirs("out", exist_ok=True)
     with open("out/fund.json", "w", encoding="utf-8") as fo:
         json.dump(fund, fo, ensure_ascii=False, separators=(",", ":"))

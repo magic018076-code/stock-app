@@ -10,7 +10,7 @@ import json, os, time, datetime as dt
 
 TW = dt.timezone(dt.timedelta(hours=8))
 H = 20  # 看之後幾個交易日
-VER = 18  # 回測程式版本；改版時自動重跑
+VER = 19  # 回測程式版本；改版時自動重跑
 
 
 def frames(series, dates):
@@ -96,6 +96,41 @@ def insti_frames(C, V):
         out["f" + k + "p"] = F.rolling(n_, min_periods=n_).sum() / vol * 100     # 外資近 n 日買賣超佔成交量 %
         out["t" + k + "p"] = T.rolling(n_, min_periods=n_).sum() / vol * 100     # 投信
     print(f"法人資料：{len([d for d, v in ins.items() if v])} 天（只有上市的 {len(tw_only)} 天）", flush=True)
+    return out
+
+
+def margin_frames(C):
+    """融資融券對齊成和股價一樣的表 → 融資 20 日增減 %、融資使用率、券資比、全市場融資 20 日增減 %"""
+    import gzip, numpy as np, pandas as pd
+    try:
+        with gzip.open("cache/margin.json.gz", "rt", encoding="utf-8") as f:
+            db = json.load(f)
+    except Exception:
+        db = {}
+    MB, SB, LM = (np.full(C.shape, np.nan) for _ in range(3))
+    cols = {c: j for j, c in enumerate(C.columns)}
+    idx = {d: i for i, d in enumerate(C.index)}
+    big = max((len(v) for v in db.values()), default=0)
+    full = np.zeros(len(C.index), bool)
+    for d, v in db.items():
+        i = idx.get(d)
+        if i is None or not v:
+            continue
+        full[i] = len(v) >= big * 0.7
+        for c, x in v.items():
+            j = cols.get(c)
+            if j is not None:
+                MB[i, j], SB[i, j], LM[i, j] = x
+    mk = lambda a: pd.DataFrame(a, index=C.index, columns=C.columns)
+    MB, SB, LM = mk(MB), mk(SB), mk(LM)
+    p20 = MB.shift(20)
+    out = {"mb20": ((MB / p20.where(p20 >= 50) - 1) * 100).clip(-100, 300),
+           "mu": (MB / LM.where(LM > 0) * 100).clip(0, 100),
+           "ssr": (SB / MB.where(MB >= 50) * 100).clip(0, 200)}
+    tot = pd.Series(np.where(full, MB.sum(axis=1).values, np.nan), index=C.index)
+    mm = (tot / tot.shift(20) - 1) * 100
+    out["mmb"] = pd.DataFrame(np.repeat(mm.values[:, None], C.shape[1], axis=1), index=C.index, columns=C.columns)
+    print(f"融資券資料：{sum(1 for v in db.values() if v)} 天（全市場完整 {int(full.sum())} 天）", flush=True)
     return out
 
 
@@ -250,6 +285,19 @@ def run(series, dates):
              "gap": gap, "vol20": C.pct_change().rolling(20).std() * 100, "amt": (C * V.rolling(20).mean() / 1e5),
              "rvy": rvy, "mkt": mkt, "vq": V.rolling(20).mean() / v120}
         F.update(insti_frames(C, V))
+        F.update(margin_frames(C))
+        try:   # 融資研究：綠燈時，全市場融資 20 日減少多少（斷頭潮）和之後報酬的關係
+            mmv = F["mmb"].values[:, 0]
+            liq = (C * V.rolling(20).mean() / 1e5 >= LIQ) & valid
+            ro = (C.shift(-H) / O.shift(-1) - 1 - COST).where(liq).mean(axis=1).values * 100
+            b_ = breadth.values
+            for lab, m_ in (("全部日子", ~np.isnan(mmv)), ("綠燈", (b_ < 15) & ~np.isnan(mmv))):
+                for lo, hi in ((-99, -10), (-10, -5), (-5, 0), (0, 5), (5, 99)):
+                    k = m_ & (mmv >= lo) & (mmv < hi) & ~np.isnan(ro)
+                    if k.sum():
+                        print(f"  融資研究｜{lab} 全市場融資 20 日 {lo}～{hi}%：{int(k.sum())} 天，之後 20 天全部股票平均 {np.nanmean(ro[k]):+.2f}%", flush=True)
+        except Exception as e:
+            print("融資研究失敗", e, flush=True)
         jump = C.pct_change().abs().rolling(60, min_periods=1).max() > 0.11   # 單日漲跌超過 11%＝資料斷層（未還原的減資等），排除
         extreme = ((C / hi250 - 1) * 100 < -75) | (rng42 * 100 > 150)   # 極端崩跌股（可能有重大問題），排除
         U = (pos <= 60) & (v20 >= 100) & valid & ~jump & ~extreme
@@ -426,7 +474,7 @@ def crash_state(idx):
     return {"on": ys < -1, "ys": round(ys, 2), "dd": round(dd, 1)}
 
 
-FEAT_NAME = {"f20p": "外資20日買賣超佔量", "f5p": "外資5日買賣超佔量", "t20p": "投信20日買賣超佔量", "t5p": "投信5日買賣超佔量", "vq": "近月量／半年量", "r5": "近5日漲跌", "vol20": "波動度", "amt": "成交金額(億)", "rvy": "營收年增", "mkt": "大盤站上季線比例", "d60": "離季線", "slope": "季線方向", "m20": "站上月線", "ch": "今日漲跌", "vr": "今日量／20日均量", "u60": "季線下天數",
+FEAT_NAME = {"mb20": "融資20日增減", "mu": "融資使用率", "ssr": "券資比", "mmb": "全市場融資20日增減", "f20p": "外資20日買賣超佔量", "f5p": "外資5日買賣超佔量", "t20p": "投信20日買賣超佔量", "t5p": "投信5日買賣超佔量", "vq": "近月量／半年量", "r5": "近5日漲跌", "vol20": "波動度", "amt": "成交金額(億)", "rvy": "營收年增", "mkt": "大盤站上季線比例", "d60": "離季線", "slope": "季線方向", "m20": "站上月線", "ch": "今日漲跌", "vr": "今日量／20日均量", "u60": "季線下天數",
              "pos": "一年位置", "r10": "近10日漲跌", "r60": "近60日漲跌", "dd": "距一年高點", "rng42": "近2月振幅", "bo": "創60日新高", "gap": "月季線差距"}
 
 
@@ -508,6 +556,12 @@ TIERS = (("s", 0, 3), ("b", 3, 6), ("w", 6, 12))   # 依當天排名：前 3%、
 STATES = (("green", 0, 15), ("yellow", 15, 25), ("red", 25, 40), ("black", 40, 101))   # 大盤燈號：全市場站上季線的比例
 GO = ("green2", "green", "rebound", "yellow")       # 可以進場的燈號
 LIGHTS = ("green2", "green", "rebound", "yellow", "red", "black")
+
+
+def CRASH_RULE(ys, dd):
+    """大盤急跌警示（陣列或數字都可以）：ys＝等權指數年線 20 日變化 %，dd＝距一年高點 %"""
+    return ys < -1
+CRASH_DD = None
 
 
 def light_state(b, mn10):
@@ -1117,7 +1171,15 @@ def plan_validate(sim, summ, X):
         ma[:249] = np.nan
         ys = np.full(N, np.nan)
         ys[20:] = (ma[20:] / ma[:-20] - 1) * 100
-        crash = ys < -1
+        hi = np.array([ew[max(0, i - 249):i + 1].max() for i in range(N)])
+        ddm = (ew / hi - 1) * 100
+        variants = {"年線下彎": ys < -1, "距高點<-25%": ddm < -25, "距高點<-30%": ddm < -30,
+                    "年線下彎或距高點<-30%": (ys < -1) | (ddm < -30), "年線下彎或距高點<-25%": (ys < -1) | (ddm < -25)}
+        gm = np.isin(code, ["green2", "green", "rebound"])
+        for vn, vm in variants.items():
+            a1, a2 = st((gm & vm)[S_si] & S_in), st((gm & ~vm)[S_si] & S_in)
+            print("  強化0c 警示比較｜%-14s 警示中 %s 筆 勝率 %s%% 平均 %s%%｜平常 %s 筆 勝率 %s%% 平均 %s%%" % (vn, a1.get("n"), a1.get("win"), a1.get("avg"), a2.get("n"), a2.get("win"), a2.get("avg")), flush=True)
+        crash = CRASH_RULE(ys, ddm)
     except Exception as e:
         print("急跌警示計算失敗", e, flush=True)
         crash = np.zeros(N, bool)
@@ -1204,10 +1266,20 @@ def maybe_run(series, dates, force=False):
         pass
     if old and ni - old.get("ni", 0) > 100:            # 法人資料補多了也重跑，讓模型學到外資、投信
         stale = True
+    nm = 0
+    try:
+        import gzip
+        with gzip.open("cache/margin.json.gz", "rt", encoding="utf-8") as f:
+            nm = sum(1 for v in json.load(f).values() if v)
+    except Exception:
+        pass
+    if old and nm - old.get("nm", 0) > 300:            # 融資券資料補多了也重跑
+        stale = True
     if stale:
         try:
             old = run(series, dates)
             old["ni"] = ni
+            old["nm"] = nm
             os.makedirs("cache", exist_ok=True)
             json.dump(old, open(p, "w", encoding="utf-8"), ensure_ascii=False)
         except Exception as e:
@@ -1233,6 +1305,14 @@ def score_today(series, dates, fund=None, ind=None, top=150, warn=None):
         return {}
     last = dates[-1]
     feats = {f["k"]: f for f in m["feats"]}
+    mmb = None
+    try:
+        mm = (fund or {}).get("mm") or []
+        if len(mm) > 20:
+            mmb = (mm[-1][1] / mm[-21][1] - 1) * 100
+            print(f"全市場融資 20 日增減：{mmb:+.1f}%", flush=True)
+    except Exception:
+        pass
     out, rows = {}, []
     # 大盤多空：今天全市場站上季線的比例
     up = tot = 0
@@ -1303,6 +1383,11 @@ def score_today(series, dates, fund=None, ind=None, top=150, warn=None):
                     x["f" + k_ + "p"] = fz["f" + k_] / vol * 100
                 if isinstance(fz.get("t" + k_), (int, float)):
                     x["t" + k_ + "p"] = fz["t" + k_] / vol * 100
+        for k_ in ("mb20", "mu", "ssr"):
+            if isinstance(fz.get(k_), (int, float)):
+                x[k_] = fz[k_]
+        if mmb is not None:
+            x["mmb"] = mmb
         rv = fz.get("rvy")
         if isinstance(rv, (int, float)):
             x["rvy"] = max(-100.0, min(300.0, rv))
