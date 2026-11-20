@@ -10,7 +10,7 @@ import json, os, time, datetime as dt
 
 TW = dt.timezone(dt.timedelta(hours=8))
 H = 20  # 看之後幾個交易日
-VER = 21  # 回測程式版本；改版時自動重跑
+VER = 22  # 回測程式版本；改版時自動重跑
 
 
 def frames(series, dates):
@@ -110,13 +110,13 @@ def margin_frames(C):
     MB, SB, LM = (np.full(C.shape, np.nan) for _ in range(3))
     cols = {c: j for j, c in enumerate(C.columns)}
     idx = {d: i for i, d in enumerate(C.index)}
-    big = max((len(v) for v in db.values()), default=0)
+    nstk = C.notna().sum(axis=1).values          # 當天有股價的股票數（早年股票比較少，不能用固定門檻）
     full = np.zeros(len(C.index), bool)
     for d, v in db.items():
         i = idx.get(d)
         if i is None or not v:
             continue
-        full[i] = len(v) >= big * 0.7
+        full[i] = len(v) >= nstk[i] * 0.7            # 上市＋上櫃都有資料才算完整
         for c, x in v.items():
             j = cols.get(c)
             if j is not None:
